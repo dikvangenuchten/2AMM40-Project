@@ -10,22 +10,19 @@ background_color = 255  # White in 1-bit mode
 shapes = ['square', 'circle']
 
 # Define the number of data points you want to generate
-num_data_points = 100  # You can change this value as needed
+num_data_points = 500  # You can change this value as needed
 
-# Define the directory to save the dataset
-output_dir = 'image_dataset'
+# Define the base directory to save the dataset
+base_output_dir = 'image_dataset'
 
 # Create the output directory if it doesn't exist
-if not os.path.exists(output_dir):
-    os.makedirs(output_dir)
+if not os.path.exists(base_output_dir):
+    os.makedirs(base_output_dir)
 
 # Function to generate and save a single image
-def generate_image(filename):
+def generate_image(shape, filename):
     image = Image.new('1', image_size, background_color)
     draw = ImageDraw.Draw(image)
-
-    # Randomly choose a shape from the list
-    shape = random.choice(shapes)
 
     # Define the shape parameters (position, size)
     position = (random.randint(0, image_size[0] - 30), random.randint(0, image_size[1] - 30))
@@ -37,12 +34,18 @@ def generate_image(filename):
     elif shape == 'circle':
         draw.ellipse([position, (position[0] + size, position[1] + size)], fill=0)
 
-    # Save the generated image
-    image.save(os.path.join(output_dir, filename))
+    # Create a subdirectory for the shape if it doesn't exist
+    shape_output_dir = os.path.join(base_output_dir, shape)
+    if not os.path.exists(shape_output_dir):
+        os.makedirs(shape_output_dir)
 
-# Generate the specified number of images
-for i in range(num_data_points):
-    filename = f'image_{i}.png'
-    generate_image(filename)
+    # Save the generated image in the appropriate subdirectory
+    image.save(os.path.join(shape_output_dir, filename))
 
-print(f'{num_data_points} images have been generated and saved in the "{output_dir}" directory.')
+# Generate the specified number of images for each shape
+for shape in shapes:
+    for i in range(num_data_points):
+        filename = f'image_{i}.png'
+        generate_image(shape, filename)
+
+print(f'{num_data_points} images for each shape have been generated and saved in separate folders in the "{base_output_dir}" directory.')
