@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from features.resnet_features import resnet18_features, resnet34_features, resnet50_features, resnet50_features_inat, resnet101_features, resnet152_features
 from features.convnext_features import convnext_tiny_26_features, convnext_tiny_13_features 
+from features.simple_features import simple18_features
 import torch
 from torch import Tensor
 
@@ -48,7 +49,8 @@ base_architecture_to_features = {'resnet18': resnet18_features,
                                  'resnet101': resnet101_features,
                                  'resnet152': resnet152_features,
                                  'convnext_tiny_26': convnext_tiny_26_features,
-                                 'convnext_tiny_13': convnext_tiny_13_features}
+                                 'convnext_tiny_13': convnext_tiny_13_features,
+                                 'simple18_features': simple18_features}
 
 # adapted from https://pytorch.org/docs/stable/_modules/torch/nn/modules/linear.html#Linear
 class NonNegLinear(nn.Module):
