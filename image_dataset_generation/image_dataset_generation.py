@@ -9,11 +9,14 @@ background_color = 255  # White in 1-bit mode
 # Define the list of shapes you want to include (e.g., square and circle)
 shapes = ['square', 'circle']
 
-# Define the number of data points you want to generate
-num_data_points = 500  # You can change this value as needed
+# Define the number of data points you want to generate for each shape
+num_data_points = 100  # You can change this value as needed
 
 # Define the base directory to save the dataset
 base_output_dir = 'image_dataset'
+
+# Define the proportion of images for the training set (0.8 = 80% for training)
+proportion = 0.8
 
 # Create the output directory if it doesn't exist
 if not os.path.exists(base_output_dir):
@@ -34,8 +37,14 @@ def generate_image(shape, filename):
     elif shape == 'circle':
         draw.ellipse([position, (position[0] + size, position[1] + size)], fill=0)
 
+    # Determine whether to save the image in the training or test set
+    if random.random() < proportion:
+        dataset_dir = 'train'
+    else:
+        dataset_dir = 'test'
+
     # Create a subdirectory for the shape if it doesn't exist
-    shape_output_dir = os.path.join(base_output_dir, shape)
+    shape_output_dir = os.path.join(base_output_dir, dataset_dir, shape)
     if not os.path.exists(shape_output_dir):
         os.makedirs(shape_output_dir)
 
@@ -48,4 +57,4 @@ for shape in shapes:
         filename = f'image_{i}.png'
         generate_image(shape, filename)
 
-print(f'{num_data_points} images for each shape have been generated and saved in separate folders in the "{base_output_dir}" directory.')
+print(f'{proportion*100}% of the images for each shape have been generated for training and test sets in separate folders in the "{base_output_dir}" directory.')
