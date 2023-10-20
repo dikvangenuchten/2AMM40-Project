@@ -4,3 +4,4 @@ scikit-learn
 opencv-python
 pandas
 matplotlib
+torchviz==0.0.2

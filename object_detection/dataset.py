@@ -10,12 +10,14 @@ import tqdm
 
 NUM_OBJECTS = 2
 
+
 class SimpleDataset(Dataset):
-    """A simple dataset 
+    """A simple dataset
 
     Args:
         Dataset (_type_): _description_
     """
+
     def __init__(
         self,
         num_labels: int = 1,
@@ -33,11 +35,12 @@ class SimpleDataset(Dataset):
         self._images, self._bboxes, self._labels = self._generate_dataset()
 
     def _generate_dataset(self):
-        return zip(*[generate_single_sample(
-            (256, 256),
-            (10, 30),
-            (1, 2)
-        ) for _ in tqdm.trange(self.length)])
+        return zip(
+            *[
+                generate_single_sample((256, 256), (10, 30), (1, 2))
+                for _ in tqdm.trange(self.length)
+            ]
+        )
 
     def __len__(self):
         return self.length
@@ -46,7 +49,7 @@ class SimpleDataset(Dataset):
         image = self._images[index]
         bboxes = self._bboxes[index]
         labels = self._labels[index]
-        
+
         if self.transform:
             image = self.transform(image)
         if self.target_transform:
@@ -62,17 +65,17 @@ def generate_single_sample(
 ):
     if rng is None:
         rng = np.random
-    
+
     # Create a blank canvas on which we will draw everything.
-    image = Image.new('1', img_size, 255)
+    image = Image.new("1", img_size, 255)
     draw = ImageDraw.Draw(image)
-    
+
     num_object = torch.randint(*num_objects, [])
     labels = []
     bboxes = []
     for _ in range(num_object):
-        x_size = torch.randint(*object_size , [])
-        y_size = torch.randint(*object_size , [])
+        x_size = torch.randint(*object_size, [])
+        y_size = torch.randint(*object_size, [])
         x_pos = torch.randint(0, img_size[0] - x_size, [])
         y_pos = torch.randint(0, img_size[1] - y_size, [])
 
@@ -83,6 +86,7 @@ def generate_single_sample(
         bboxes.append(bbox)
 
     return image, torch.tensor(bboxes), torch.tensor(labels)
+
 
 if __name__ == "__main__":
     dataset = SimpleDataset(transform=torchvision.transforms.PILToTensor())
