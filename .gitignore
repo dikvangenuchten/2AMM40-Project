@@ -261,3 +261,5 @@ pyrightconfig.json
 
 ### PIP-net repository clone
 # /pipnet/
+
+wandb

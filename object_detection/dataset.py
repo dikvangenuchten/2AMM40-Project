@@ -22,7 +22,7 @@ class SimpleDataset(Dataset):
     def __init__(
         self,
         num_labels: int = 1,
-        length: int = 1_000,
+        length: int = 10_000,
         transform=None,
         target_transform=None,
     ) -> None:
@@ -90,20 +90,27 @@ def generate_single_sample(
 
 def create_batch(to_be_batched) -> Tuple[torch.Tensor, List[Dict[str, torch.Tensor]]]:
     """Create a batch from the images, boxes, and labels
-    
+
     For the build in SSD loss function we need a list of Mappings
     """
     images, targets = zip(*to_be_batched)
     return torch.stack(images, 0), targets
 
-def create_simple_dataloader() -> DataLoader:
+
+def create_simple_dataloader(size: int = 10_000, batch_size=128) -> DataLoader:
     dataset = SimpleDataset(
-        transform=torchvision.transforms.Compose([
-        torchvision.transforms.PILToTensor(),
-        torchvision.transforms.ConvertImageDtype(dtype=torch.float32)
-        ]
-        ))
-    return DataLoader(dataset=dataset, shuffle=True, batch_size=256, collate_fn=create_batch)
+        length=size,
+        transform=torchvision.transforms.Compose(
+            [
+                torchvision.transforms.PILToTensor(),
+                torchvision.transforms.ConvertImageDtype(dtype=torch.float32),
+            ]
+        ),
+    )
+    return DataLoader(
+        dataset=dataset, shuffle=True, batch_size=batch_size, collate_fn=create_batch
+    )
+
 
 if __name__ == "__main__":
     dataset = SimpleDataset(transform=torchvision.transforms.PILToTensor())
