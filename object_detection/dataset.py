@@ -22,6 +22,7 @@ class SimpleDataset(Dataset):
     def __init__(
         self,
         num_labels: int = 1,
+        img_size: Tuple[int, int] = (128, 128),
         length: int = 10_000,
         transform=None,
         target_transform=None,
@@ -30,6 +31,8 @@ class SimpleDataset(Dataset):
         assert num_labels == 1
         self._num_labels = num_labels
         self.length = length
+        self.img_size = img_size
+        
         self.transform = transform
         self.target_transform = target_transform
 
@@ -38,7 +41,7 @@ class SimpleDataset(Dataset):
     def _generate_dataset(self):
         return zip(
             *[
-                generate_single_sample((256, 256), (10, 30), (1, 3))
+                generate_single_sample(self.img_size, (10, 30), (1, 3))
                 for _ in tqdm.trange(self.length)
             ]
         )
@@ -97,9 +100,10 @@ def create_batch(to_be_batched) -> Tuple[torch.Tensor, List[Dict[str, torch.Tens
     return torch.stack(images, 0), targets
 
 
-def create_simple_dataloader(size: int = 10_000, batch_size=128) -> DataLoader:
+def create_simple_dataloader(size: int = 10_000, batch_size=128, img_size=(128, 128)) -> DataLoader:
     dataset = SimpleDataset(
         length=size,
+        img_size=img_size,
         transform=torchvision.transforms.Compose(
             [
                 torchvision.transforms.PILToTensor(),
@@ -113,7 +117,6 @@ def create_simple_dataloader(size: int = 10_000, batch_size=128) -> DataLoader:
 
 
 if __name__ == "__main__":
-    dataset = SimpleDataset(transform=torchvision.transforms.PILToTensor())
-    loader = DataLoader(dataset=dataset, shuffle=True, batch_size=256)
+    loader = create_simple_dataloader(100)
     for x in loader:
         pass

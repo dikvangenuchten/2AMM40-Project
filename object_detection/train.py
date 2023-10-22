@@ -116,13 +116,17 @@ def train(train_loader, test_loader, model: SSD, optimizer, epoch):
 
 
 def main():
-    config = {"epochs": 100, "img_size": (128, 128)}
+    config = {"epochs": 100, "img_size": (128, 128), "batch_size": 128}
 
     wandb.init(project="pip-object-detection", entity="dikvangenuchten", config=config)
 
     model = create_model(num_classes=2, img_size=config["img_size"])
-    train_loader = create_simple_dataloader(10_000)
-    test_loader = create_simple_dataloader(100)
+    train_loader = create_simple_dataloader(
+        10_000, batch_size=config["batch_size"], img_size=config["img_size"]
+    )
+    test_loader = create_simple_dataloader(
+        100, batch_size=config["batch_size"], img_size=config["img_size"]
+    )
     optimizer = optim.Adam(model.parameters())
     train(
         model=model,
