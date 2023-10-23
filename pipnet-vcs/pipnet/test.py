@@ -108,7 +108,7 @@ def eval_pipnet(net,
         print("\n Epoch",epoch, flush=True)
         print("Confusion matrix: ", cm, flush=True)
         try:
-            for classname, classidx in test_loader.dataset.dataset.class_to_idx.items(): 
+            for classname, classidx in test_loader.dataset.class_to_idx.items(): 
                 if classidx == 0:
                     print("Accuracy positive class (", classname, classidx,") (TPR, Sensitivity):", tp/(tp+fn))
                 elif classidx == 1:
