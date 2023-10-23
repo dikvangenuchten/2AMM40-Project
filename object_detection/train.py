@@ -33,8 +33,8 @@ def convert_to_box_data(target):
             "domain": "pixel",
             "position": {
                 "minX": int(box[0]),
-                "maxX": int(box[1]),
-                "minY": int(box[2]),
+                "maxX": int(box[2]),
+                "minY": int(box[1]),
                 "maxY": int(box[3]),
             },
             "class_id": int(label),
@@ -116,16 +116,34 @@ def train(train_loader, test_loader, model: SSD, optimizer, epoch):
 
 
 def main():
-    config = {"epochs": 100, "img_size": (128, 128), "batch_size": 128}
+    config = {
+        "epochs": 100,
+        "img_size": (128, 128),
+        "batch_size": 128,
+        "object_size": (20, 40),
+        "num_shapes": 2,
+    }
 
     wandb.init(project="pip-object-detection", entity="dikvangenuchten", config=config)
 
-    model = create_model(num_classes=2, img_size=config["img_size"])
+    model = create_model(
+        # +1 for background class
+        num_classes=config["num_shapes"] + 1,
+        img_size=config["img_size"]
+    )
     train_loader = create_simple_dataloader(
-        10_000, batch_size=config["batch_size"], img_size=config["img_size"]
+        100_000,
+        num_shapes=2 + 1,
+        batch_size=config["batch_size"],
+        img_size=config["img_size"],
+        object_size=config["object_size"],
     )
     test_loader = create_simple_dataloader(
-        100, batch_size=config["batch_size"], img_size=config["img_size"]
+        100,
+        num_shapes=2 + 1,
+        batch_size=config["batch_size"],
+        img_size=config["img_size"],
+        object_size=config["object_size"],
     )
     optimizer = optim.Adam(model.parameters())
     train(
