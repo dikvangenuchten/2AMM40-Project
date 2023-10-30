@@ -47,7 +47,7 @@ class SimpleDataset(Dataset):
                     self.img_size,
                     object_size=self.object_size,
                     num_objects=(1, 3),
-                    num_shapes=self._num_shapes
+                    num_shapes=self._num_shapes,
                 )
                 for _ in tqdm.trange(self.length)
             ]
@@ -91,7 +91,7 @@ def generate_single_sample(
         y_pos = torch.randint(0, img_size[1] - size, [])
 
         bbox = [x_pos, y_pos, x_pos + size, y_pos + size]
-        
+
         shape_type = torch.randint(1, num_shapes, [])
         if shape_type == 1:
             draw.rectangle(bbox, fill=0)

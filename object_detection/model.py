@@ -1,10 +1,10 @@
-from typing import Any, Tuple
-from torch import nn
+from typing import Any, Dict, List, Optional, Tuple
+from torch import Tensor, nn
 import torch
 from torchviz import make_dot
 
 import torchvision
-from torchvision.models.detection.ssd import SSD, DefaultBoxGenerator, SSDHead
+from torchvision.models.detection.ssd import SSD, DefaultBoxGenerator, SSDHead, SSDRegressionHead, SSDClassificationHead, SSDScoringHead
 import tqdm
 
 import constants
@@ -31,6 +31,54 @@ class MultiBoxLoss(nn.Module):
     (2) a confidence loss for the predicted class scores.
     """
 
+
+class PIPHead(nn.Module):
+    def __init__(self, in_channels: List[int], num_anchors: List[int], num_classes: int):
+        super().__init__()
+        self.classification_head = PIPClassificationHead(in_channels, num_anchors, num_classes)
+        self.regression_head = SSDRegressionHead(in_channels, num_anchors)
+
+    def forward(self, x: List[Tensor]) -> Dict[str, Tensor]:
+        return {
+            "bbox_regression": self.regression_head(x),
+            "cls_logits": self.classification_head(x),
+        }
+
+
+def _xavier_init(conv: nn.Module):
+    for layer in conv.modules():
+        if isinstance(layer, nn.Conv2d):
+            torch.nn.init.xavier_uniform_(layer.weight)
+            if layer.bias is not None:
+                torch.nn.init.constant_(layer.bias, 0.0)
+
+class PIPClassificationHead(SSDScoringHead):
+    def __init__(self, in_channels: List[int], num_anchors: List[int], num_classes: int):
+        cls_logits = nn.ModuleList()
+        add_on_layers = nn.ModuleList()
+        classification_layers = nn.ModuleList()
+        
+        for channels, anchors in zip(in_channels, num_anchors):
+            add_on_layer = nn.Softmax(dim=1)
+            add_on_layers.append(add_on_layer)
+            classification_layer = nn.Conv2d(channels, num_classes * anchors, kernel_size=1)
+            classification_layers.append(classification_layer)
+            cls_logits.append(
+                nn.Sequential(
+                    # nn.Conv2d(channels, channels, kernel_size=3, padding=1),
+                    add_on_layer,
+                    classification_layer
+                )
+            )
+            # cls_logits.append(nn.Conv2d(channels, num_classes * anchors, kernel_size=3, padding=1))
+        _xavier_init(cls_logits)
+        super().__init__(cls_logits, num_classes)
+        self.add_on_layers = add_on_layers
+        self.classification_layers = classification_layers
+        
+    def forward(self, x: List[Tensor]) -> Tensor:
+        out = super().forward(x)
+        return out
 
 def create_model(
     num_classes: int,
@@ -62,15 +110,15 @@ def create_model(
     )
 
     num_anchors = anchor_generator.num_anchors_per_location()
-    _head = SSDHead(_backbone.out_channels, num_anchors, num_classes)
+    _head = PIPHead(_backbone.out_channels, num_anchors, num_classes)
 
     _model = SSD(
-        backbone=_backbone,
-        num_classes=num_classes,
-        anchor_generator=anchor_generator,
-        size=img_size,
-        head=_head,
-        nms_thresh=nms_treshold,
+            backbone=_backbone,
+            num_classes=num_classes,
+            anchor_generator=anchor_generator,
+            size=img_size,
+            head=_head,
+            nms_thresh=nms_treshold,
     )
     _model.to(constants.DEVICE)
     return _model

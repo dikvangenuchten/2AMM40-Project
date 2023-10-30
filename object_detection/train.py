@@ -118,9 +118,9 @@ def train(train_loader, test_loader, model: SSD, optimizer, epoch):
 def main():
     config = {
         "epochs": 100,
-        "img_size": (128, 128),
-        "batch_size": 128,
-        "object_size": (20, 40),
+        "img_size": (64, 64),
+        "batch_size": 256,
+        "object_size": (10, 15),
         "num_shapes": 2,
     }
 
@@ -129,10 +129,10 @@ def main():
     model = create_model(
         # +1 for background class
         num_classes=config["num_shapes"] + 1,
-        img_size=config["img_size"]
+        img_size=config["img_size"],
     )
     train_loader = create_simple_dataloader(
-        100_000,
+        10_000,
         num_shapes=2 + 1,
         batch_size=config["batch_size"],
         img_size=config["img_size"],
