@@ -1,0 +1,36 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Train PIPNet",
+            "type": "python",
+            "request": "launch",
+            "program": "main.py",
+            "cwd": "${workspaceFolder}/pipnet-vcs",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "args": [
+                "--dataset",
+                "simple",
+                "--num_workers",
+                "2",
+                "--batch_size",
+                "4",
+                "--batch_size_pretrain",
+                "4",
+            ]
+        },
+        {
+            "name": "Python: Train ObjectPIPNet",
+            "type": "python",
+            "request": "launch",
+            "program": "train.py",
+            "cwd": "${workspaceFolder}/object_detection",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+        }
+    ]
+}
