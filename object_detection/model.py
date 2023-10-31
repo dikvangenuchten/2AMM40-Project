@@ -4,44 +4,53 @@ import torch
 from torchviz import make_dot
 
 import torchvision
-from torchvision.models.detection.ssd import SSD, DefaultBoxGenerator, SSDHead, SSDRegressionHead, SSDClassificationHead, SSDScoringHead
+from torchvision.models.detection.ssd import (
+    SSD,
+    DefaultBoxGenerator,
+    SSDHead,
+    SSDRegressionHead,
+    SSDClassificationHead,
+    SSDScoringHead,
+)
 import tqdm
 
 import constants
 
-
-class Backbone(nn.Module):
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-
-        self._out_channels = []
-
-
-class MultiBoxLoss(nn.Module):
+class NonNegativeConv2d(nn.Conv2d):
+    """Convolutional variant of the NonNegLinear of PIPNet
+    
+    Required because object detection is not Location Invariant.
     """
-    The MultiBox loss, for object detection.
-    Adapted from:
-    https://github.com/sgrvinod/a-PyTorch-Tutorial-to-Object-Detection/blob/43fd8be9e82b351619a467373d211ee5bf73cef8/model.py#L532
+    def forward(self, input: Tensor) -> Tensor:
+        return self._conv_forward(input, torch.relu(self.weight), self.bias)
 
-    The details are in the SSD: MultiBox paper section 2.2 Training.
-    https://arxiv.org/pdf/1512.02325.pdf
-
-    This is a combination of:
-    (1) a localization loss for the predicted locations of the boxes, and
-    (2) a confidence loss for the predicted class scores.
-    """
+class PIPSSD(SSD):
+    def compute_loss(
+        self,
+        targets: List[Dict[str, Tensor]],
+        head_outputs: Dict[str, Tensor],
+        anchors: List[Tensor],
+        matched_idxs: List[Tensor],
+    ) -> Dict[str, Tensor]:
+        return super().compute_loss(targets, head_outputs, anchors, matched_idxs)
 
 
 class PIPHead(nn.Module):
-    def __init__(self, in_channels: List[int], num_anchors: List[int], num_classes: int):
+    def __init__(
+        self, in_channels: List[int], num_anchors: List[int], num_classes: int
+    ):
         super().__init__()
-        self.classification_head = PIPClassificationHead(in_channels, num_anchors, num_classes)
+        self.classification_head = PIPClassificationHead(
+            in_channels, num_anchors, num_classes
+        )
         self.regression_head = SSDRegressionHead(in_channels, num_anchors)
 
     def forward(self, x: List[Tensor]) -> Dict[str, Tensor]:
+        cls_logits, add_on_out = self.classification_head(x)
         return {
             "bbox_regression": self.regression_head(x),
-            "cls_logits": self.classification_head(x),
+            "cls_logits": cls_logits,
+            "add_on_out": add_on_out,
         }
 
 
@@ -52,22 +61,27 @@ def _xavier_init(conv: nn.Module):
             if layer.bias is not None:
                 torch.nn.init.constant_(layer.bias, 0.0)
 
+
 class PIPClassificationHead(SSDScoringHead):
-    def __init__(self, in_channels: List[int], num_anchors: List[int], num_classes: int):
+    def __init__(
+        self, in_channels: List[int], num_anchors: List[int], num_classes: int
+    ):
         cls_logits = nn.ModuleList()
         add_on_layers = nn.ModuleList()
         classification_layers = nn.ModuleList()
-        
+
         for channels, anchors in zip(in_channels, num_anchors):
             add_on_layer = nn.Softmax(dim=1)
             add_on_layers.append(add_on_layer)
-            classification_layer = nn.Conv2d(channels, num_classes * anchors, kernel_size=1)
+            classification_layer = NonNegativeConv2d(
+                channels, num_classes * anchors, kernel_size=1
+            )
             classification_layers.append(classification_layer)
             cls_logits.append(
                 nn.Sequential(
                     # nn.Conv2d(channels, channels, kernel_size=3, padding=1),
                     add_on_layer,
-                    classification_layer
+                    classification_layer,
                 )
             )
             # cls_logits.append(nn.Conv2d(channels, num_classes * anchors, kernel_size=3, padding=1))
@@ -75,10 +89,53 @@ class PIPClassificationHead(SSDScoringHead):
         super().__init__(cls_logits, num_classes)
         self.add_on_layers = add_on_layers
         self.classification_layers = classification_layers
-        
-    def forward(self, x: List[Tensor]) -> Tensor:
-        out = super().forward(x)
+        self.num_anchors = num_anchors
+
+    @staticmethod
+    def _get_result_from_module_list(module_list, x: Tensor, idx: int) -> Tensor:
+        """
+        This is equivalent to module_list[idx](x),
+        but torchscript doesn't support this yet
+        """
+        num_blocks = len(module_list)
+        if idx < 0:
+            idx += num_blocks
+        out = x
+        for i, module in enumerate(module_list):
+            if i == idx:
+                out = module(x)
         return out
+
+    @staticmethod
+    def _permute_output(tensor, num_columns):
+        # Permute output from (N, A * K, H, W) to (N, HWA, K).
+        N, _, H, W = tensor.shape
+        tensor = tensor.view(N, -1, num_columns, H, W)
+        tensor = tensor.permute(0, 3, 4, 1, 2)
+        tensor = tensor.reshape(N, -1, num_columns)  # Size=(N, HWA, K)
+        return tensor
+
+    def forward(self, x: List[Tensor]) -> Tensor:
+        all_results = []
+        all_add_on_outs = []
+
+        for i, (features, num_anchors) in enumerate(zip(x, self.num_anchors)):
+            add_on_out = self._get_result_from_module_list(
+                self.add_on_layers, features, i
+            )
+            results = self._get_result_from_module_list(
+                self.classification_layers, add_on_out, i
+            )
+
+            # Permute output from (N, A * K, H, W) to (N, HWA, K).
+            all_add_on_outs.append(
+                add_on_out
+                # self._permute_output(add_on_out, self.num_columns * num_anchors)
+            )
+            all_results.append(self._permute_output(results, self.num_columns))
+
+        return torch.cat(all_results, dim=1), torch.cat(all_add_on_outs, dim=1)
+
 
 def create_model(
     num_classes: int,
@@ -112,13 +169,13 @@ def create_model(
     num_anchors = anchor_generator.num_anchors_per_location()
     _head = PIPHead(_backbone.out_channels, num_anchors, num_classes)
 
-    _model = SSD(
-            backbone=_backbone,
-            num_classes=num_classes,
-            anchor_generator=anchor_generator,
-            size=img_size,
-            head=_head,
-            nms_thresh=nms_treshold,
+    _model = PIPSSD(
+        backbone=_backbone,
+        num_classes=num_classes,
+        anchor_generator=anchor_generator,
+        size=img_size,
+        head=_head,
+        nms_thresh=nms_treshold,
     )
     _model.to(constants.DEVICE)
     return _model

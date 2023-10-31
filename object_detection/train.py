@@ -86,7 +86,7 @@ def train(train_loader, test_loader, model: SSD, optimizer, epoch):
     for i in (pbar := tqdm.trange(epoch)):
         model.train()
         # Batches
-        for j, (images, targets) in enumerate(tqdm.tqdm(train_loader, leave=False)):
+        for j, (images, images_prime, targets) in enumerate(tqdm.tqdm(train_loader, leave=False)):
             optimizer.zero_grad()
             # Move to default device
             images = images.to(DEVICE)  # (batch_size (N), 3, 300, 300)
@@ -105,7 +105,7 @@ def train(train_loader, test_loader, model: SSD, optimizer, epoch):
             optimizer.step()
 
         model.train(False)
-        for j, (images, targets) in enumerate(tqdm.tqdm(test_loader, leave=False)):
+        for j, (images, images_prime, targets) in enumerate(tqdm.tqdm(test_loader, leave=False)):
             images = images.to(DEVICE)
             targets = move_targets_to_device(targets, DEVICE)
             predicted = model(images)
