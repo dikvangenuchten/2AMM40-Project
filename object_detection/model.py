@@ -1,6 +1,8 @@
-from typing import Any, Dict, List, Optional, Tuple
+from collections import namedtuple
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 from torch import Tensor, nn
 import torch
+from torch.nn import functional as F
 from torchviz import make_dot
 
 import torchvision
@@ -16,15 +18,34 @@ import tqdm
 
 import constants
 
+
 class NonNegativeConv2d(nn.Conv2d):
     """Convolutional variant of the NonNegLinear of PIPNet
-    
+
     Required because object detection is not Location Invariant.
     """
+
     def forward(self, input: Tensor) -> Tensor:
         return self._conv_forward(input, torch.relu(self.weight), self.bias)
 
+
+PIPSSDLoss = namedtuple(
+    "PIPSSDLoss", ["bbox_regression", "classification", "align_loss", "tanh_loss"]
+)
+
+# from https://gitlab.com/mipl/carl/-/blob/main/losses.py
+@torch.jit.script
+def align_loss(inputs, targets, EPS: float=1e-12):
+    # assert inputs.shape == targets.shape
+    # assert targets.requires_grad == False
+
+    loss = torch.einsum("nc,nc->n", [inputs, targets])
+    loss = -torch.log(loss + EPS).mean()
+    return loss
+
+
 class PIPSSD(SSD):
+    torch.jit.script
     def compute_loss(
         self,
         targets: List[Dict[str, Tensor]],
@@ -32,7 +53,44 @@ class PIPSSD(SSD):
         anchors: List[Tensor],
         matched_idxs: List[Tensor],
     ) -> Dict[str, Tensor]:
-        return super().compute_loss(targets, head_outputs, anchors, matched_idxs)
+        loss_dict = super().compute_loss(targets, head_outputs, anchors, matched_idxs)
+        loss_dict["align_loss"] = self._compute_align_loss(head_outputs["add_on_out"])
+        loss_dict["tanh_loss"] = self._compute_tanh_loss(head_outputs["add_on_out"])
+        return PIPSSDLoss(**loss_dict)
+
+    @staticmethod
+    @torch.jit.script
+    def _compute_align_loss(proto_features: torch.Tensor) -> torch.Tensor:
+        """Computes the align loss.
+
+        The align loss ensures that patches that are (to a human) similar,
+        also are similar within the latent space of the model. Which in the case
+        of PIP are the prototypes.
+
+        Note: It is assumed that the input to the model was: torch.stack(x, x_{prime})
+        Where x, is the original image, and x_{prime} is a augmented version which
+        preserves the classification and localisation of the original image.
+        """
+        pf1, pf2 = proto_features.chunk(2)
+
+        embv1 = pf1.flatten(start_dim=2).permute(0, 2, 1).flatten(end_dim=1)
+        embv2 = pf2.flatten(start_dim=2).permute(0, 2, 1).flatten(end_dim=1)
+
+        return (
+            align_loss(embv1, embv2.detach()) + align_loss(embv2, embv1.detach())
+        ) / 2.0
+
+    @staticmethod
+    @torch.jit.script
+    def _compute_tanh_loss(proto_features: torch.Tensor) -> torch.Tensor:
+        """Compute the tanh loss.
+
+        The tanh loss incentivices the model to use all prototypes available.
+        It is achieved by maximizing the maximum value of each prototype within the batch.
+        """
+        pooled = F.adaptive_max_pool2d(proto_features, (1, 1)).flatten()
+        # We use log(x + 1) instead of log(x + eps) as it is more stable
+        return -torch.log1p(torch.tanh(torch.sum(pooled, dim=0))).mean()
 
 
 class PIPHead(nn.Module):

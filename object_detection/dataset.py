@@ -29,7 +29,7 @@ class SimpleDataset(Dataset):
         object_size: Tuple[int, int] = (20, 40),
         transform=None,
         target_transform=None,
-        pip_net: bool= True,
+        pip_net: bool = True,
     ) -> None:
         super().__init__()
         assert 1 < num_shapes < 4
@@ -84,7 +84,7 @@ class SimpleDataset(Dataset):
         # if self.transform2:
         image_prime = self.transform2(image)
         # if self.target_transform:
-            # target = self.target_transform(target)
+        # target = self.target_transform(target)
         return image_, image_prime, target
 
 
@@ -127,6 +127,10 @@ def generate_single_sample(
     return image, ({"boxes": torch.tensor(bboxes), "labels": torch.tensor(labels)})
 
 
+def label_to_caption(label: int) -> str:
+    return ["square", "circle"][label]
+
+
 def create_batch(to_be_batched) -> Tuple[torch.Tensor, List[Dict[str, torch.Tensor]]]:
     """Create a batch from the images, boxes, and labels
 
@@ -153,6 +157,7 @@ def create_simple_dataloader(
     return DataLoader(
         dataset=dataset, shuffle=True, batch_size=batch_size, collate_fn=create_batch
     )
+
 
 # Copied from PIPNET
 # function copied from https://pytorch.org/vision/stable/_modules/torchvision/transforms/autoaugment.html#TrivialAugmentWide (v0.12) and adapted
@@ -201,6 +206,8 @@ class TrivialAugmentWideNoShape(transforms.TrivialAugmentWide):
             "AutoContrast": (torch.tensor(0.0), False),
             "Equalize": (torch.tensor(0.0), False),
         }
+
+
 # Copied from PIPNET
 
 if __name__ == "__main__":
