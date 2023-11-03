@@ -105,7 +105,13 @@ def train_step(
     #     clip_gradient(optimizer, grad_clip)
     # Update model
     optimizer.step()
-    return loss.detach()
+    return {
+        "Loss": loss.detach(),
+        "classification_loss": loss_dict.bbox_regression.detach(),
+        "classification_loss": loss_dict.classification.detach(),
+        "align_loss": loss_dict.align_loss.detach(),
+        "tanh_loss": loss_dict.tanh_loss.detach(),
+    }
 
 
 def train(train_loader, test_loader, model: SSD, optimizer, epoch):
@@ -149,14 +155,14 @@ def train(train_loader, test_loader, model: SSD, optimizer, epoch):
 
         wandb_log_images(images, targets, predicted)
 
-        pbar.set_description(f"loss: {float(loss)}")
+        pbar.set_description(loss)
 
 
 def main():
     config = {
         "epochs": 100,
         "img_size": (64, 64),
-        "batch_size": 1024,
+        "batch_size": 512,
         "object_size": (10, 15),
         "num_shapes": 2,
     }
