@@ -33,9 +33,10 @@ PIPSSDLoss = namedtuple(
     "PIPSSDLoss", ["bbox_regression", "classification", "align_loss", "tanh_loss"]
 )
 
+
 # from https://gitlab.com/mipl/carl/-/blob/main/losses.py
 @torch.jit.script
-def align_loss(inputs, targets, EPS: float=1e-12):
+def align_loss(inputs, targets, EPS: float = 1e-12):
     # assert inputs.shape == targets.shape
     # assert targets.requires_grad == False
 
@@ -45,7 +46,6 @@ def align_loss(inputs, targets, EPS: float=1e-12):
 
 
 class PIPSSD(SSD):
-    torch.jit.script
     def compute_loss(
         self,
         targets: List[Dict[str, Tensor]],
@@ -89,8 +89,7 @@ class PIPSSD(SSD):
         It is achieved by maximizing the maximum value of each prototype within the batch.
         """
         pooled = F.adaptive_max_pool2d(proto_features, (1, 1)).flatten()
-        # We use log(x + 1) instead of log(x + eps) as it is more stable
-        return -torch.log1p(torch.tanh(torch.sum(pooled, dim=0))).mean()
+        return -torch.log(torch.tanh(torch.sum(pooled, dim=0)) + 1e-12).mean()
 
 
 class PIPHead(nn.Module):
@@ -103,7 +102,7 @@ class PIPHead(nn.Module):
         )
         self.regression_head = SSDRegressionHead(in_channels, num_anchors)
 
-    def forward(self, x: List[Tensor]) -> Dict[str, Tensor]:
+    def forward(self: "PIPHead", x: List[Tensor]) -> Dict[str, Tensor]:
         cls_logits, add_on_out = self.classification_head(x)
         return {
             "bbox_regression": self.regression_head(x),

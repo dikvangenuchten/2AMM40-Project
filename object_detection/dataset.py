@@ -32,7 +32,7 @@ class SimpleDataset(Dataset):
         pip_net: bool = True,
     ) -> None:
         super().__init__()
-        assert 1 < num_shapes < 4
+        assert 1 < num_shapes < 5
         self._num_shapes = num_shapes
         self.length = length
         self.img_size = img_size
@@ -120,6 +120,9 @@ def generate_single_sample(
         elif shape_type == 2:
             draw.ellipse(bbox, fill=0)
             labels.append(2)
+        elif shape_type == 3:
+            draw = draw_triangle(draw, bbox, fill=0)
+            labels.append(3)
         else:
             assert False, f"{shape_type=} is unsupported."
         bboxes.append(bbox)
@@ -127,8 +130,14 @@ def generate_single_sample(
     return image, ({"boxes": torch.tensor(bboxes), "labels": torch.tensor(labels)})
 
 
+def draw_triangle(draw, bbox, fill=0):
+    x1, y1, x2, y2 = bbox
+    draw.polygon(((x1, y1), (x1, y2), (x2, y2)), fill=fill)
+    return draw
+
+
 def label_to_caption(label: int) -> str:
-    return ["square", "circle"][label]
+    return ["square", "circle", "triangle"][label]
 
 
 def create_batch(to_be_batched) -> Tuple[torch.Tensor, List[Dict[str, torch.Tensor]]]:

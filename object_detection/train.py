@@ -82,6 +82,10 @@ def train_step(
     x: torch.Tensor,
     x_prime: torch.Tensor,
     targets: Tuple[Dict[str, torch.Tensor]],
+    bbox_regression_mul: float = 1.0,
+    classification_mul: float = 1.0,
+    align_loss_mul: float = 1.0,
+    tanh_loss_mul: float = 1.0,
 ) -> torch.Tensor:
     optimizer.zero_grad()
     # Stack the images and images prime
@@ -94,11 +98,11 @@ def train_step(
     # Loss
     # TODO add pip loss components
     loss = (
-        loss_dict.bbox_regression
-        + loss_dict.classification
-        + loss_dict.align_loss
-        + loss_dict.tanh_loss
-    )
+        bbox_regression_mul * loss_dict.bbox_regression
+        + classification_mul * loss_dict.classification
+        + align_loss_mul * loss_dict.align_loss
+        + tanh_loss_mul * loss_dict.tanh_loss
+    ) / (bbox_regression_mul + classification_mul + align_loss_mul + tanh_loss_mul)
     loss.backward()
     # # Clip gradients, if necessary
     # if grad_clip is not None:
@@ -107,14 +111,25 @@ def train_step(
     optimizer.step()
     return {
         "Loss": loss.detach(),
-        "classification_loss": loss_dict.bbox_regression.detach(),
+        "localization_loss": loss_dict.bbox_regression.detach(),
         "classification_loss": loss_dict.classification.detach(),
         "align_loss": loss_dict.align_loss.detach(),
         "tanh_loss": loss_dict.tanh_loss.detach(),
     }
 
 
-def train(train_loader, test_loader, model: SSD, optimizer, epoch):
+def train(
+    train_loader,
+    test_loader,
+    model: SSD,
+    optimizer,
+    epoch: int,
+    pretraining_epochs: int,
+    bbox_regression_mul: float = 1.0,
+    classification_mul: float = 1.0,
+    align_loss_mul: float = 1.0,
+    tanh_loss_mul: float = 1.0,
+) -> SSD:
     """
     One epoch's training.
 
@@ -125,21 +140,25 @@ def train(train_loader, test_loader, model: SSD, optimizer, epoch):
     """
     wandb.watch(model)
 
-    # x, x_prime, t = next(iter(train_loader))
-    # sample_input = torch.cat((x, x_prime), 0).to(DEVICE)
-    # sample_target = move_targets_to_device(cat_targets(t))
-    # base_model.train()
-    # model = torch.jit.trace(base_model, (sample_input, sample_target))
-    # model(sample_input, sample_target)
-
     for i in (pbar := tqdm.trange(epoch)):
         model.train()
+        pretraining = i < pretraining_epochs
         # Batches
         for j, (images, images_prime, targets) in enumerate(
             tqdm.tqdm(train_loader, leave=False)
         ):
-            loss = train_step(model, optimizer, images, images_prime, targets)
-            wandb.log({"train_loss": loss}, commit=False)
+            loss = train_step(
+                model,
+                optimizer,
+                images,
+                images_prime,
+                targets,
+                bbox_regression_mul=bbox_regression_mul if not pretraining else 0,
+                classification_mul=classification_mul if not pretraining else 0,
+                align_loss_mul=align_loss_mul,
+                tanh_loss_mul=tanh_loss_mul,
+            )
+            wandb.log(loss, commit=False)
 
         model.eval()
         for j, (images, _, targets) in enumerate(tqdm.tqdm(test_loader, leave=False)):
@@ -155,19 +174,32 @@ def train(train_loader, test_loader, model: SSD, optimizer, epoch):
 
         wandb_log_images(images, targets, predicted)
 
-        pbar.set_description(loss)
+        pbar.set_description(str(loss))
+
+    return model
 
 
 def main():
     config = {
+        "pretraining_epochs": 10,
         "epochs": 100,
         "img_size": (64, 64),
-        "batch_size": 512,
+        "batch_size": 1024,
         "object_size": (10, 15),
         "num_shapes": 2,
+        "localization": 1.0,
+        "classification": 1.0,
+        "align": 1.0,
+        "tanh": 1.0,
     }
 
-    wandb.init(project="pip-object-detection", entity="dikvangenuchten", config=config)
+    wandb.init(
+        project="pip-object-detection",
+        entity="dikvangenuchten",
+        config=config,
+    )
+    # Get the config from wandb for sweeps
+    config = wandb.config
 
     model = create_model(
         # +1 for background class
@@ -175,27 +207,30 @@ def main():
         img_size=config["img_size"],
     )
     train_loader = create_simple_dataloader(
-        100_000,
+        config["batch_size"] * 50,
         num_shapes=2 + 1,
         batch_size=config["batch_size"],
         img_size=config["img_size"],
         object_size=config["object_size"],
     )
     test_loader = create_simple_dataloader(
-        100,
-        num_shapes=2 + 1,
-        batch_size=config["batch_size"],
+        64,
+        num_shapes=3 + 1,
+        batch_size=64,
         img_size=config["img_size"],
         object_size=config["object_size"],
     )
     optimizer = optim.Adam(model.parameters())
-    train(
+    model = train(
         model=model,
         train_loader=train_loader,
         test_loader=test_loader,
         optimizer=optimizer,
         epoch=config["epochs"],
+        pretraining_epochs=config["pretraining_epochs"],
     )
+
+    wandb.save(model)
 
 
 if __name__ == "__main__":
