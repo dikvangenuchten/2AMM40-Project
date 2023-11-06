@@ -208,14 +208,14 @@ def main():
     )
     train_loader = create_simple_dataloader(
         config["batch_size"] * 50,
-        num_shapes=2 + 1,
+        num_shapes=config["num_shapes"] + 1,
         batch_size=config["batch_size"],
         img_size=config["img_size"],
         object_size=config["object_size"],
     )
     test_loader = create_simple_dataloader(
         64,
-        num_shapes=3 + 1,
+        num_shapes=config["num_shapes"] + 1,
         batch_size=64,
         img_size=config["img_size"],
         object_size=config["object_size"],
