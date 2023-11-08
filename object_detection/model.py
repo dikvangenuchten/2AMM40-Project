@@ -1,8 +1,11 @@
-from collections import namedtuple
-from typing import Any, Dict, List, NamedTuple, Optional, Tuple
+from collections import OrderedDict, namedtuple
+from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
+import warnings
+import numpy as np
 from torch import Tensor, nn
 import torch
 from torch.nn import functional as F
+from torch.nn.common_types import _size_2_t
 from torchviz import make_dot
 
 import torchvision
@@ -14,6 +17,7 @@ from torchvision.models.detection.ssd import (
     SSDClassificationHead,
     SSDScoringHead,
 )
+from torchvision.ops import boxes as box_ops
 import tqdm
 
 import constants
@@ -24,10 +28,23 @@ class NonNegativeConv2d(nn.Conv2d):
 
     Required because object detection is not Location Invariant.
     """
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: _size_2_t, stride: _size_2_t = 1, padding: _size_2_t | str = 0, dilation: _size_2_t = 1, groups: int = 1, bias: bool = True, padding_mode: str = 'zeros', device=None, dtype=None) -> None:
+        super().__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode, device, dtype)
+        super().register_forward_pre_hook(self._clamp_weights)
 
     def forward(self, input: Tensor) -> Tensor:
-        return self._conv_forward(input, torch.relu(self.weight), self.bias)
+        return self._conv_forward(input, self.weight, self.bias)
 
+    def _clamp_weights(self, *args):
+        """Before every forward call the weights are explicitly clamped to 0"""
+        w_rg = self.weight.requires_grad
+        b_rg = self.bias.requires_grad
+        self.weight.requires_grad = False
+        self.bias.requires_grad = False
+        self.weight.clamp_min_(0.0)
+        self.bias.clamp_min_(0.0)
+        self.weight.requires_grad = w_rg
+        self.bias.requires_grad = b_rg
 
 PIPSSDLoss = namedtuple(
     "PIPSSDLoss", ["bbox_regression", "classification", "align_loss", "tanh_loss"]
@@ -57,6 +74,174 @@ class PIPSSD(SSD):
         loss_dict["align_loss"] = self._compute_align_loss(head_outputs["add_on_out"])
         loss_dict["tanh_loss"] = self._compute_tanh_loss(head_outputs["add_on_out"])
         return PIPSSDLoss(**loss_dict)
+
+    def forward(
+        self,
+        images: List[Tensor],
+        targets: Optional[List[Dict[str, Tensor]]] = None,
+        calc_losses: bool = True,
+        calc_detections: bool = True,
+        calc_prototypes: bool = False,
+    ) -> Tuple[Dict[str, Tensor], List[Dict[str, Tensor]]]:
+        """Copied from torchvision.models.detection.ssd and adjusted to allow the calculation of prototypes.
+
+        Seperated it into smaller functions and simplified it due to some assumptions we adhere to such as:
+        * Always same image size
+        """
+        images, targets = self._prepare_input(images, targets)
+
+        # get the features from the backbone
+        features = self.backbone(images.tensors)
+        if isinstance(features, torch.Tensor):
+            features = OrderedDict([("0", features)])
+
+        features = list(features.values())
+
+        # compute the ssd heads outputs using the features
+        head_outputs = self.head(features)
+
+        # create the set of anchors
+        anchors = self.anchor_generator(images, features)
+
+        output = {}
+        if calc_losses:
+            output["losses"] = self._calc_losses(targets, head_outputs, anchors)
+        if calc_detections:
+            output["detections"] = self.postprocess_detections(
+                head_outputs, anchors, images.image_sizes
+            )
+
+            # We do not reshape the images within the model so this step is redundent
+            # detections = self.transform.postprocess(detections, images.image_sizes, original_image_sizes)
+        if calc_prototypes:
+            output["prototypes"] = self._calc_prototypes(head_outputs, images.tensors)
+
+        return output
+    
+    def _calc_prototypes(self, head_outputs, images):
+        # return
+        # Get idx for examples where a specific prototype is very present
+        batch_idx, prototype_idx, h_idx, w_idx = torch.where(head_outputs["add_on_out"] > 0.9)
+        num_classes = self.head.classification_head.num_columns
+        weights = self.head.classification_head.classification_layers[0].weight
+        prototype_weights_per_class = [weights[list(range(c, weights.shape[0], num_classes))] for c in range(num_classes)]
+        
+        # For each class get the x most important prototypes
+        x = 5
+        most_important_prototypes_per_class = [None] * num_classes
+        for c in range(num_classes):
+            _, indices = prototype_weights_per_class[c].flatten().topk(x)
+            most_important_prototypes = np.unravel_index(indices.cpu(), prototype_weights_per_class[c].shape)[1]
+            most_important_prototypes_per_class[c] = most_important_prototypes
+            
+        
+        # For each prototype get the top y most prominent (i.e. highest softmax)
+        y = 10
+        img_w, img_h = images.shape[-2:]
+        fea_w, fea_h = head_outputs["add_on_out"].shape[-2:]
+        mul_w = int(img_w / fea_w)
+        mul_h = int(img_h / fea_h)
+        sample_prototypes = [None] * head_outputs["add_on_out"].shape[1]
+        for proto_idx in range(head_outputs["add_on_out"].shape[1]):
+            value, idx = head_outputs["add_on_out"][:, proto_idx].flatten(1).max(1)
+            topk_value, batch_idx = value.topk(y)
+            w_idx, h_idx = np.unravel_index(idx[batch_idx], head_outputs["add_on_out"].shape[-2:])
+            # If the prototype is on the edge of the image,
+            # part of the 'focus' would be outside of the original image.
+            # To make it easier on ourselves we clip it to the inside.
+            w_idx = w_idx.clip(1, fea_w - 2)
+            h_idx = h_idx.clip(1, fea_h - 2)
+            # Convert w,h to patches of the original image.
+            # We take a 3x3 square multiplied by the reduction in image size.
+            w_idx_min, h_idx_min = (w_idx - 1) * mul_w, (h_idx - 1) * mul_h
+            w_idx_max, h_idx_max = (w_idx + 2) * mul_w, (h_idx + 2) * mul_h
+            
+            sample_prototypes[proto_idx] = torch.stack(
+                [images[batch_idx[i], :, w_idx_min[i]:w_idx_max[i], h_idx_min[i]:h_idx_max[i]] for i in range(len(batch_idx))],
+                0
+            )
+            from torchvision.utils import save_image
+            save_image(sample_prototypes[proto_idx], f"prototype_{proto_idx}.png")
+
+        # for prot_idx in head_outputs["add_on_out"]:
+        for img, softmaxes in zip(images, head_outputs["add_on_out"]):
+            pass
+        pass
+
+    def _calc_losses(self, targets, head_outputs, anchors):
+        losses = {}
+        matched_idxs = []
+        if targets is None:
+            torch._assert(False, "targets should not be none when in training mode")
+        else:
+            for anchors_per_image, targets_per_image in zip(anchors, targets):
+                if targets_per_image["boxes"].numel() == 0:
+                    matched_idxs.append(
+                        torch.full(
+                            (anchors_per_image.size(0),),
+                            -1,
+                            dtype=torch.int64,
+                            device=anchors_per_image.device,
+                        )
+                    )
+                    continue
+
+                match_quality_matrix = box_ops.box_iou(
+                    targets_per_image["boxes"], anchors_per_image
+                )
+                matched_idxs.append(self.proposal_matcher(match_quality_matrix))
+
+            losses = self.compute_loss(targets, head_outputs, anchors, matched_idxs)
+        return losses
+
+    def _prepare_input(self, images, targets):
+        if self.training:
+            if targets is None:
+                torch._assert(False, "targets should not be none when in training mode")
+            else:
+                for target in targets:
+                    boxes = target["boxes"]
+                    if isinstance(boxes, torch.Tensor):
+                        torch._assert(
+                            len(boxes.shape) == 2 and boxes.shape[-1] == 4,
+                            f"Expected target boxes to be a tensor of shape [N, 4], got {boxes.shape}.",
+                        )
+                    else:
+                        torch._assert(
+                            False,
+                            f"Expected target boxes to be of type Tensor, got {type(boxes)}.",
+                        )
+
+        # get the original image sizes
+        # original_image_sizes: List[Tuple[int, int]] = []
+        # for img in images:
+        #     val = img.shape[-2:]
+        #     torch._assert(
+        #         len(val) == 2,
+        #         f"expecting the last two dimensions of the Tensor to be H and W instead got {img.shape[-2:]}",
+        #     )
+        #     original_image_sizes.append((val[0], val[1]))
+
+
+        # transform the input
+        images, targets = self.transform(images, targets)
+
+        # Check for degenerate boxes
+        # We do not generate degenerate boxes, so we can skip this check
+        if False and targets is not None:
+            for target_idx, target in enumerate(targets):
+                boxes = target["boxes"]
+                degenerate_boxes = boxes[:, 2:] <= boxes[:, :2]
+                if degenerate_boxes.any():
+                    bb_idx = torch.where(degenerate_boxes.any(dim=1))[0][0]
+                    degen_bb: List[float] = boxes[bb_idx].tolist()
+                    torch._assert(
+                        False,
+                        "All bounding boxes should have positive height and width."
+                        f" Found invalid box {degen_bb} for target at index {target_idx}.",
+                    )
+
+        return images, targets
 
     @staticmethod
     @torch.jit.script
@@ -199,7 +384,7 @@ def create_model(
     img_size: Tuple[int, int],
     nms_treshold: float = 0.45,
     *args,
-    **kwargs
+    **kwargs,
 ) -> SSD:
     pretrained_backbone = torchvision.models.resnet34(
         weights=torchvision.models.ResNet34_Weights.DEFAULT
@@ -219,8 +404,8 @@ def create_model(
 
     _backbone.out_channels = [64]
     anchor_generator = DefaultBoxGenerator(
-        # For now we will only have shapes with aspect ration of 1
-        [[1]],
+        # We do not add any aspect ratios, only using the default (1 and s'k)
+        [[]],
     )
 
     num_anchors = anchor_generator.num_anchors_per_location()

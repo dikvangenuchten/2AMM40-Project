@@ -5,30 +5,10 @@ from torchvision.models.detection.ssd import SSD
 import tqdm
 import wandb
 
-from model import PIPSSDLoss, create_model
+from model import PIPSSD, PIPSSDLoss, create_model
 from dataset import create_simple_dataloader, label_to_caption
 from constants import DEVICE
-
-
-def move_targets_to_device(
-    targets: Tuple[Dict[str, torch.Tensor]], device: str = DEVICE
-) -> Tuple[Dict[str, torch.Tensor]]:
-    """Moves the targets to a (cuda) device
-
-    Args:
-        targets (Tuple[Dict[str, torch.Tensor]]): _description_
-
-    Returns:
-        Tuple[Dict[str, torch.Tensor]]: _description_
-    """
-    return [{k: v.to(device) for (k, v) in target.items()} for target in targets]
-
-
-def cat_targets(
-    targets: Tuple[Dict[str, torch.Tensor]]
-) -> Tuple[Dict[str, torch.Tensor]]:
-    return targets + targets
-
+from utils import move_targets_to_device, cat_targets
 
 def convert_to_box_data(target):
     return [
@@ -69,7 +49,7 @@ def wandb_log_images(
                         "prediction": {"box_data": convert_to_box_data(prediction)},
                     },
                 )
-                for image, target, prediction in zip(images, targets, predicted)
+                for image, target, prediction in zip(images[:64], targets, predicted)
             ]
         },
         commit=commit,
@@ -77,7 +57,7 @@ def wandb_log_images(
 
 
 def train_step(
-    model: torch.nn.Module,
+    model: PIPSSD,
     optimizer: torch.optim.Optimizer,
     x: torch.Tensor,
     x_prime: torch.Tensor,
@@ -90,13 +70,16 @@ def train_step(
     optimizer.zero_grad()
     # Stack the images and images prime
     # This is done for the calculation of the align loss
-    images = torch.cat((x, x_prime), dim=0).to(DEVICE)
+    images = torch.cat((x.to(DEVICE), x_prime.to(DEVICE)), dim=0)
     targets = move_targets_to_device(cat_targets(targets), DEVICE)
 
     # Forward prop.
-    loss_dict: PIPSSDLoss = model(images, targets)
+    model_output = model.forward(
+        images, targets, calc_losses=True, calc_detections=False, calc_prototypes=False
+    )
+    loss_dict: PIPSSDLoss = model_output["losses"]
+
     # Loss
-    # TODO add pip loss components
     loss = (
         bbox_regression_mul * loss_dict.bbox_regression
         + classification_mul * loss_dict.classification
@@ -111,8 +94,8 @@ def train_step(
     optimizer.step()
     return {
         "Loss": loss.detach(),
-        "localization_loss": loss_dict.bbox_regression.detach(),
-        "classification_loss": loss_dict.classification.detach(),
+        "loc_loss": loss_dict.bbox_regression.detach(),
+        "class_loss": loss_dict.classification.detach(),
         "align_loss": loss_dict.align_loss.detach(),
         "tanh_loss": loss_dict.tanh_loss.detach(),
     }
@@ -121,7 +104,7 @@ def train_step(
 def train(
     train_loader,
     test_loader,
-    model: SSD,
+    model: PIPSSD,
     optimizer,
     epoch: int,
     pretraining_epochs: int,
@@ -129,7 +112,7 @@ def train(
     classification_mul: float = 1.0,
     align_loss_mul: float = 1.0,
     tanh_loss_mul: float = 1.0,
-) -> SSD:
+) -> PIPSSD:
     """
     One epoch's training.
 
@@ -161,7 +144,7 @@ def train(
             wandb.log(loss, commit=False)
 
         model.eval()
-        for j, (images, _, targets) in enumerate(tqdm.tqdm(test_loader, leave=False)):
+        for j, (images, images_prime, targets) in enumerate(tqdm.tqdm(test_loader, leave=False)):
             # Stack the images and images prime
             # This is done for the calculation of the align loss
             images = torch.cat((images, images_prime), dim=0)
@@ -170,19 +153,26 @@ def train(
             targets = cat_targets(targets)
             targets = move_targets_to_device(targets, DEVICE)
 
-            predicted = model(images)
+            output = model.forward(
+                images,
+                targets,
+                calc_losses=True,
+                calc_detections=True,
+                calc_prototypes=False,
+            )
+            # TODO log test loss
 
-        wandb_log_images(images, targets, predicted)
+        wandb_log_images(images, targets, output["detections"])
 
-        pbar.set_description(str(loss))
+        pbar.set_description("||".join(f"{k}:{float(v):.4f}" for k, v in loss.items()))
 
     return model
 
 
 def main():
     config = {
-        "pretraining_epochs": 10,
-        "epochs": 100,
+        "pretraining_epochs": 2,
+        "epochs": 10,
         "img_size": (64, 64),
         "batch_size": 1024,
         "object_size": (10, 15),
@@ -230,7 +220,8 @@ def main():
         pretraining_epochs=config["pretraining_epochs"],
     )
 
-    wandb.save(model)
+    torch.save(model, "final_model.pt")
+    wandb.save("final_model.pt")
 
 
 if __name__ == "__main__":

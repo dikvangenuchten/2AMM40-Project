@@ -8,6 +8,8 @@ import torchvision
 from torchvision import transforms
 import numpy as np
 import tqdm
+from tqdm.contrib.concurrent import process_map
+from multiprocessing import Pool
 
 from constants import DEVICE
 
@@ -57,7 +59,10 @@ class SimpleDataset(Dataset):
             ]
         )
 
-        self._images, self._targets = self._generate_dataset()
+        images, self._targets = self._generate_dataset()
+        self._raw_images = images
+        self._images = [None] * len(self._raw_images)
+        self._images_prime = [None] * len(self._raw_images)
 
     def _generate_dataset(self):
         return zip(
@@ -76,16 +81,16 @@ class SimpleDataset(Dataset):
         return self.length
 
     def __getitem__(self, index) -> Any:
+        # Create cache on first pass
+        if self._images[index] is None:
+            self._images[index] = self.transform1(self._raw_images[index])
+        if self._images_prime[index] is None:
+            self._images_prime[index] = self.transform2(self._raw_images[index])
         image = self._images[index]
+        image_prime = self._images_prime[index]
         target = self._targets[index]
 
-        # if self.transform1:
-        image_ = self.transform1(image)
-        # if self.transform2:
-        image_prime = self.transform2(image)
-        # if self.target_transform:
-        # target = self.target_transform(target)
-        return image_, image_prime, target
+        return image, image_prime, target
 
 
 def generate_single_sample(
@@ -164,7 +169,12 @@ def create_simple_dataloader(
         transform=None,
     )
     return DataLoader(
-        dataset=dataset, shuffle=True, batch_size=batch_size, collate_fn=create_batch
+        dataset=dataset,
+        shuffle=True,
+        batch_size=batch_size,
+        collate_fn=create_batch,
+        num_workers=4,
+        pin_memory=True,
     )
 
 
