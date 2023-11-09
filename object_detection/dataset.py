@@ -1,17 +1,16 @@
 from typing import Any, Dict, List, Optional, Tuple
 import torch
-from torch import Tensor
 from torch.utils.data import Dataset, DataLoader
 from PIL import Image, ImageDraw
-from torchvision.io import read_image
-import torchvision
 from torchvision import transforms
 import numpy as np
 import tqdm
-from tqdm.contrib.concurrent import process_map
-from multiprocessing import Pool
 
 from constants import DEVICE
+from custom_transforms import (
+    TrivialAugmentWideNoShape,
+    TrivialAugmentWideNoShapeWithColor,
+)
 
 NUM_OBJECTS = 2
 
@@ -25,7 +24,7 @@ class SimpleDataset(Dataset):
 
     def __init__(
         self,
-        num_shapes: int = 1,
+        num_shapes: int = 2,
         img_size: Tuple[int, int] = (128, 128),
         length: int = 10_000,
         object_size: Tuple[int, int] = (20, 40),
@@ -159,7 +158,7 @@ def create_simple_dataloader(
     batch_size=128,
     img_size=(128, 128),
     object_size=(20, 30),
-    num_shapes=1,
+    num_shapes=2,
 ) -> DataLoader:
     dataset = SimpleDataset(
         length=size,
@@ -178,58 +177,7 @@ def create_simple_dataloader(
     )
 
 
-# Copied from PIPNET
-# function copied from https://pytorch.org/vision/stable/_modules/torchvision/transforms/autoaugment.html#TrivialAugmentWide (v0.12) and adapted
-class TrivialAugmentWideNoColor(transforms.TrivialAugmentWide):
-    def _augmentation_space(self, num_bins: int) -> Dict[str, Tuple[Tensor, bool]]:
-        return {
-            "Identity": (torch.tensor(0.0), False),
-            "ShearX": (torch.linspace(0.0, 0.5, num_bins), True),
-            "ShearY": (torch.linspace(0.0, 0.5, num_bins), True),
-            "TranslateX": (torch.linspace(0.0, 16.0, num_bins), True),
-            "TranslateY": (torch.linspace(0.0, 16.0, num_bins), True),
-            "Rotate": (torch.linspace(0.0, 60.0, num_bins), True),
-        }
-
-
-class TrivialAugmentWideNoShapeWithColor(transforms.TrivialAugmentWide):
-    def _augmentation_space(self, num_bins: int) -> Dict[str, Tuple[Tensor, bool]]:
-        return {
-            "Identity": (torch.tensor(0.0), False),
-            "Brightness": (torch.linspace(0.0, 0.5, num_bins), True),
-            "Color": (torch.linspace(0.0, 0.5, num_bins), True),
-            "Contrast": (torch.linspace(0.0, 0.5, num_bins), True),
-            "Sharpness": (torch.linspace(0.0, 0.5, num_bins), True),
-            "Posterize": (
-                8 - (torch.arange(num_bins) / ((num_bins - 1) / 6)).round().int(),
-                False,
-            ),
-            "Solarize": (torch.linspace(255.0, 0.0, num_bins), False),
-            "AutoContrast": (torch.tensor(0.0), False),
-            "Equalize": (torch.tensor(0.0), False),
-        }
-
-
-class TrivialAugmentWideNoShape(transforms.TrivialAugmentWide):
-    def _augmentation_space(self, num_bins: int) -> Dict[str, Tuple[Tensor, bool]]:
-        return {
-            "Identity": (torch.tensor(0.0), False),
-            "Brightness": (torch.linspace(0.0, 0.5, num_bins), True),
-            "Color": (torch.linspace(0.0, 0.02, num_bins), True),
-            "Contrast": (torch.linspace(0.0, 0.5, num_bins), True),
-            "Sharpness": (torch.linspace(0.0, 0.5, num_bins), True),
-            "Posterize": (
-                8 - (torch.arange(num_bins) / ((num_bins - 1) / 6)).round().int(),
-                False,
-            ),
-            "AutoContrast": (torch.tensor(0.0), False),
-            "Equalize": (torch.tensor(0.0), False),
-        }
-
-
-# Copied from PIPNET
-
 if __name__ == "__main__":
-    loader = create_simple_dataloader(100, img_size=(10, 10))
+    loader = create_simple_dataloader(100, img_size=(40, 40))
     for x in loader:
         pass

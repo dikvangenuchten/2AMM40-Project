@@ -9,6 +9,7 @@ from torch.nn.common_types import _size_2_t
 from torchviz import make_dot
 
 import torchvision
+from torchvision.utils import save_image
 from torchvision.models.detection.ssd import (
     SSD,
     DefaultBoxGenerator,
@@ -28,8 +29,34 @@ class NonNegativeConv2d(nn.Conv2d):
 
     Required because object detection is not Location Invariant.
     """
-    def __init__(self, in_channels: int, out_channels: int, kernel_size: _size_2_t, stride: _size_2_t = 1, padding: _size_2_t | str = 0, dilation: _size_2_t = 1, groups: int = 1, bias: bool = True, padding_mode: str = 'zeros', device=None, dtype=None) -> None:
-        super().__init__(in_channels, out_channels, kernel_size, stride, padding, dilation, groups, bias, padding_mode, device, dtype)
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: _size_2_t,
+        stride: _size_2_t = 1,
+        padding: _size_2_t | str = 0,
+        dilation: _size_2_t = 1,
+        groups: int = 1,
+        bias: bool = True,
+        padding_mode: str = "zeros",
+        device=None,
+        dtype=None,
+    ) -> None:
+        super().__init__(
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride,
+            padding,
+            dilation,
+            groups,
+            bias,
+            padding_mode,
+            device,
+            dtype,
+        )
         super().register_forward_pre_hook(self._clamp_weights)
 
     def forward(self, input: Tensor) -> Tensor:
@@ -45,6 +72,7 @@ class NonNegativeConv2d(nn.Conv2d):
         self.bias.clamp_min_(0.0)
         self.weight.requires_grad = w_rg
         self.bias.requires_grad = b_rg
+
 
 PIPSSDLoss = namedtuple(
     "PIPSSDLoss", ["bbox_regression", "classification", "align_loss", "tanh_loss"]
@@ -88,10 +116,10 @@ class PIPSSD(SSD):
         Seperated it into smaller functions and simplified it due to some assumptions we adhere to such as:
         * Always same image size
         """
-        images, targets = self._prepare_input(images, targets)
+        images_, targets = self._prepare_input(images, targets)
 
         # get the features from the backbone
-        features = self.backbone(images.tensors)
+        features = self.backbone(images_.tensors)
         if isinstance(features, torch.Tensor):
             features = OrderedDict([("0", features)])
 
@@ -101,42 +129,48 @@ class PIPSSD(SSD):
         head_outputs = self.head(features)
 
         # create the set of anchors
-        anchors = self.anchor_generator(images, features)
+        anchors = self.anchor_generator(images_, features)
 
         output = {}
         if calc_losses:
             output["losses"] = self._calc_losses(targets, head_outputs, anchors)
         if calc_detections:
             output["detections"] = self.postprocess_detections(
-                head_outputs, anchors, images.image_sizes
+                head_outputs, anchors, images_.image_sizes
             )
 
             # We do not reshape the images within the model so this step is redundent
-            # detections = self.transform.postprocess(detections, images.image_sizes, original_image_sizes)
+            # detections = self.transform.postprocess(detections, images_.image_sizes, original_image_sizes)
         if calc_prototypes:
-            output["prototypes"] = self._calc_prototypes(head_outputs, images.tensors)
+            output["prototypes"] = self._calc_prototypes(head_outputs, images)
 
         return output
-    
+
     def _calc_prototypes(self, head_outputs, images):
         # return
         # Get idx for examples where a specific prototype is very present
-        batch_idx, prototype_idx, h_idx, w_idx = torch.where(head_outputs["add_on_out"] > 0.9)
+        batch_idx, prototype_idx, h_idx, w_idx = torch.where(
+            head_outputs["add_on_out"] > 0.9
+        )
         num_classes = self.head.classification_head.num_columns
         weights = self.head.classification_head.classification_layers[0].weight
-        prototype_weights_per_class = [weights[list(range(c, weights.shape[0], num_classes))] for c in range(num_classes)]
-        
+        prototype_weights_per_class = [
+            weights[list(range(c, weights.shape[0], num_classes))]
+            for c in range(num_classes)
+        ]
+
         # For each class get the x most important prototypes
         x = 5
         most_important_prototypes_per_class = [None] * num_classes
         for c in range(num_classes):
-            _, indices = prototype_weights_per_class[c].flatten().topk(x)
-            most_important_prototypes = np.unravel_index(indices.cpu(), prototype_weights_per_class[c].shape)[1]
+            _, indices = prototype_weights_per_class[c].flatten().topk(x, sorted=True)
+            most_important_prototypes = np.unravel_index(
+                indices.cpu(), prototype_weights_per_class[c].shape
+            )[1]
             most_important_prototypes_per_class[c] = most_important_prototypes
-            
-        
+
         # For each prototype get the top y most prominent (i.e. highest softmax)
-        y = 10
+        y = 4 * 4
         img_w, img_h = images.shape[-2:]
         fea_w, fea_h = head_outputs["add_on_out"].shape[-2:]
         mul_w = int(img_w / fea_w)
@@ -144,8 +178,10 @@ class PIPSSD(SSD):
         sample_prototypes = [None] * head_outputs["add_on_out"].shape[1]
         for proto_idx in range(head_outputs["add_on_out"].shape[1]):
             value, idx = head_outputs["add_on_out"][:, proto_idx].flatten(1).max(1)
-            topk_value, batch_idx = value.topk(y)
-            w_idx, h_idx = np.unravel_index(idx[batch_idx], head_outputs["add_on_out"].shape[-2:])
+            topk_value, batch_idx = value.topk(y, sorted=True)
+            w_idx, h_idx = np.unravel_index(
+                idx[batch_idx].cpu(), head_outputs["add_on_out"].shape[-2:]
+            )
             # If the prototype is on the edge of the image,
             # part of the 'focus' would be outside of the original image.
             # To make it easier on ourselves we clip it to the inside.
@@ -155,13 +191,25 @@ class PIPSSD(SSD):
             # We take a 3x3 square multiplied by the reduction in image size.
             w_idx_min, h_idx_min = (w_idx - 1) * mul_w, (h_idx - 1) * mul_h
             w_idx_max, h_idx_max = (w_idx + 2) * mul_w, (h_idx + 2) * mul_h
-            
+
             sample_prototypes[proto_idx] = torch.stack(
-                [images[batch_idx[i], :, w_idx_min[i]:w_idx_max[i], h_idx_min[i]:h_idx_max[i]] for i in range(len(batch_idx))],
-                0
+                [
+                    images[
+                        batch_idx[i],
+                        :,
+                        w_idx_min[i] : w_idx_max[i],
+                        h_idx_min[i] : h_idx_max[i],
+                    ]
+                    for i in range(len(batch_idx))
+                ],
+                0,
             )
-            from torchvision.utils import save_image
-            save_image(sample_prototypes[proto_idx], f"prototype_{proto_idx}.png")
+
+            save_image(
+                sample_prototypes[proto_idx],
+                f"prototype_{proto_idx}.png",
+                nrow=int(np.sqrt(y)),
+            )
 
         # for prot_idx in head_outputs["add_on_out"]:
         for img, softmaxes in zip(images, head_outputs["add_on_out"]):
@@ -221,7 +269,6 @@ class PIPSSD(SSD):
         #         f"expecting the last two dimensions of the Tensor to be H and W instead got {img.shape[-2:]}",
         #     )
         #     original_image_sizes.append((val[0], val[1]))
-
 
         # transform the input
         images, targets = self.transform(images, targets)

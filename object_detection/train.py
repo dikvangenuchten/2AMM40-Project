@@ -10,6 +10,7 @@ from dataset import create_simple_dataloader, label_to_caption
 from constants import DEVICE
 from utils import move_targets_to_device, cat_targets
 
+
 def convert_to_box_data(target):
     return [
         {
@@ -144,7 +145,9 @@ def train(
             wandb.log(loss, commit=False)
 
         model.eval()
-        for j, (images, images_prime, targets) in enumerate(tqdm.tqdm(test_loader, leave=False)):
+        for j, (images, images_prime, targets) in enumerate(
+            tqdm.tqdm(test_loader, leave=False)
+        ):
             # Stack the images and images prime
             # This is done for the calculation of the align loss
             images = torch.cat((images, images_prime), dim=0)
@@ -160,12 +163,16 @@ def train(
                 calc_detections=True,
                 calc_prototypes=False,
             )
-            # TODO log test loss
 
+        # TODO log test loss
         wandb_log_images(images, targets, output["detections"])
+        del images
+        del targets
+        del output
 
         pbar.set_description("||".join(f"{k}:{float(v):.4f}" for k, v in loss.items()))
 
+        torch.save(model, f"model_256_epoch_{i}.pt")
     return model
 
 
@@ -173,13 +180,13 @@ def main():
     config = {
         "pretraining_epochs": 2,
         "epochs": 10,
-        "img_size": (64, 64),
-        "batch_size": 1024,
-        "object_size": (10, 15),
+        "img_size": (256, 256),
+        "batch_size": 100,
+        "object_size": (16, 64),
         "num_shapes": 2,
         "localization": 1.0,
         "classification": 1.0,
-        "align": 1.0,
+        "align": 10.0,
         "tanh": 1.0,
     }
 
@@ -197,16 +204,16 @@ def main():
         img_size=config["img_size"],
     )
     train_loader = create_simple_dataloader(
-        config["batch_size"] * 50,
+        config["batch_size"] * 500,
         num_shapes=config["num_shapes"] + 1,
         batch_size=config["batch_size"],
         img_size=config["img_size"],
         object_size=config["object_size"],
     )
     test_loader = create_simple_dataloader(
-        64,
+        50,
         num_shapes=config["num_shapes"] + 1,
-        batch_size=64,
+        batch_size=50,
         img_size=config["img_size"],
         object_size=config["object_size"],
     )
@@ -220,8 +227,8 @@ def main():
         pretraining_epochs=config["pretraining_epochs"],
     )
 
-    torch.save(model, "final_model.pt")
-    wandb.save("final_model.pt")
+    torch.save(model, "final_model_256.pt")
+    wandb.save("final_model_256.pt")
 
 
 if __name__ == "__main__":
