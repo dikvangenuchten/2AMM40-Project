@@ -81,7 +81,7 @@ class SimpleMnistDataset(Dataset):
     def __getitem__(self, index) -> Any:
         img, label = self.mnist_dataset[index]
         bboxes = self._bboxes[index]
-        target = {"boxes": torch.tensor([bboxes,]), "labels": torch.tensor([label,])}
+        target = {"boxes": torch.tensor([bboxes,]), "labels": torch.tensor([label + 1,])}
 
         full_image = torch.zeros(1, *self.img_size, dtype=torch.uint8)
         full_image[:, bboxes[1]:bboxes[3], bboxes[0]:bboxes[2]] = img
@@ -95,10 +95,12 @@ class SimpleMnistDataset(Dataset):
 def create_mnist_dataloader(
     batch_size=128,
     img_size=(128, 128),
+    train=True,
 ) -> DataLoader:
     dataset = SimpleMnistDataset(
         img_size=img_size,
         transform=None,
+        train=train
     )
     return DataLoader(
         dataset=dataset,

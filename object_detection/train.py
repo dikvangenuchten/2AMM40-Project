@@ -219,12 +219,14 @@ def main():
         # config["batch_size"] * 500,
         batch_size=config["batch_size"],
         img_size=config["img_size"],
+        train=True,
         # object_size=config["object_size"],
     )
     test_loader = create_mnist_dataloader(
         # 50,
         batch_size=config["batch_size"],
         img_size=config["img_size"],
+        train=False,
         # object_size=config["object_size"],
     )
     optimizer = optim.Adam(model.parameters())
