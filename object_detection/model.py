@@ -185,12 +185,13 @@ class PIPSSD(SSD):
             # If the prototype is on the edge of the image,
             # part of the 'focus' would be outside of the original image.
             # To make it easier on ourselves we clip it to the inside.
-            w_idx = w_idx.clip(1, fea_w - 2)
-            h_idx = h_idx.clip(1, fea_h - 2)
+            patch_padding = 1
+            w_idx = w_idx.clip(patch_padding, fea_w - (patch_padding + 1))
+            h_idx = h_idx.clip(patch_padding, fea_h - (patch_padding + 1))
             # Convert w,h to patches of the original image.
-            # We take a 3x3 square multiplied by the reduction in image size.
-            w_idx_min, h_idx_min = (w_idx - 1) * mul_w, (h_idx - 1) * mul_h
-            w_idx_max, h_idx_max = (w_idx + 2) * mul_w, (h_idx + 2) * mul_h
+            # We take a 5x5 square multiplied by the reduction in image size.
+            w_idx_min, h_idx_min = (w_idx - patch_padding) * mul_w, (h_idx - patch_padding) * mul_h
+            w_idx_max, h_idx_max = (w_idx + (patch_padding + 1)) * mul_w, (h_idx + (patch_padding + 1)) * mul_h
 
             sample_prototypes[proto_idx] = torch.stack(
                 [
@@ -444,12 +445,12 @@ def create_model(
         pretrained_backbone.relu,
         pretrained_backbone.maxpool,
         pretrained_backbone.layer1,
-        # pretrained_backbone.layer2,
-        # pretrained_backbone.layer3,
+        pretrained_backbone.layer2,
+        pretrained_backbone.layer3,
         # pretrained_backbone.layer4,
     )
 
-    _backbone.out_channels = [64]
+    _backbone.out_channels = [256]
     anchor_generator = DefaultBoxGenerator(
         # We do not add any aspect ratios, only using the default (1 and s'k)
         [[]],

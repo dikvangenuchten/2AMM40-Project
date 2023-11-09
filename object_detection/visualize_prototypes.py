@@ -31,7 +31,7 @@ if __name__ == "__main__":
         "tanh": 1.0,
     }
 
-    model = torch.load("object_detection/final_model_256.pt")
+    model = torch.load("object_detection/mnist_model_epoch:1.pt")
     data_loader = create_simple_dataloader(
         config["batch_size"],
         num_shapes=3 + 1,

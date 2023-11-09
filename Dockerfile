@@ -6,3 +6,5 @@ RUN apt update && apt install graphviz ffmpeg libsm6 libxext6 -y --no-install-re
 
 COPY requirements.txt requirements.txt
 RUN pip install -r requirements.txt
+
+COPY . .

@@ -73,9 +73,9 @@ def get_data(args: argparse.Namespace):
     if args.dataset == "simple":
         return get_simple(
             True,
-            "././image_dataset",
-            "././image_dataset",
-            None,
+            "../image_dataset/train",
+            "../image_dataset/train",
+            "../image_dataset/test",
             args.image_size,
             args.seed,
             args.validation_size,
@@ -646,7 +646,7 @@ def get_simple(
 
     if augment:
         transform1 = transforms.Compose(
-            [
+            [  
                 transforms.Resize(size=(img_size + 32, img_size + 32)),
                 TrivialAugmentWideNoColor(),
                 transforms.RandomHorizontalFlip(),
@@ -654,7 +654,7 @@ def get_simple(
             ]
         )
         transform2 = transforms.Compose(
-            [
+            [  
                 TrivialAugmentWideNoShape(),
                 transforms.RandomCrop(size=(img_size, img_size)),  # includes crop
                 transforms.Grayscale(3),  # convert to grayscale with three channels

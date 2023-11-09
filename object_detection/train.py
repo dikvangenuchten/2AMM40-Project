@@ -8,6 +8,7 @@ import wandb
 from model import PIPSSD, PIPSSDLoss, create_model
 from dataset import create_simple_dataloader, label_to_caption
 from constants import DEVICE
+from mnist_dataset import create_mnist_dataloader
 from utils import move_targets_to_device, cat_targets
 
 
@@ -161,8 +162,19 @@ def train(
                 targets,
                 calc_losses=True,
                 calc_detections=True,
-                calc_prototypes=False,
+                calc_prototypes=True,
             )
+            
+            test_loss = {
+                # "test_loss": output["losses"].detach(),
+                "test_loc_loss": output["losses"].bbox_regression.detach(),
+                "test_class_loss": output["losses"].classification.detach(),
+                "test_align_loss": output["losses"].align_loss.detach(),
+                "test_tanh_loss": output["losses"].tanh_loss.detach(),
+            }
+            wandb.log(test_loss, commit=False)
+            # Only do 1 test batch
+            break
 
         # TODO log test loss
         wandb_log_images(images, targets, output["detections"])
@@ -172,7 +184,7 @@ def train(
 
         pbar.set_description("||".join(f"{k}:{float(v):.4f}" for k, v in loss.items()))
 
-        torch.save(model, f"model_256_epoch_{i}.pt")
+        torch.save(model, f"mnist_model_epoch:{i}.pt")
     return model
 
 
@@ -180,10 +192,10 @@ def main():
     config = {
         "pretraining_epochs": 2,
         "epochs": 10,
-        "img_size": (256, 256),
-        "batch_size": 100,
+        "img_size": (128, 128),
+        "batch_size": 256,
         "object_size": (16, 64),
-        "num_shapes": 2,
+        "num_shapes": 10,
         "localization": 1.0,
         "classification": 1.0,
         "align": 10.0,
@@ -203,19 +215,17 @@ def main():
         num_classes=config["num_shapes"] + 1,
         img_size=config["img_size"],
     )
-    train_loader = create_simple_dataloader(
-        config["batch_size"] * 500,
-        num_shapes=config["num_shapes"] + 1,
+    train_loader = create_mnist_dataloader(
+        # config["batch_size"] * 500,
         batch_size=config["batch_size"],
         img_size=config["img_size"],
-        object_size=config["object_size"],
+        # object_size=config["object_size"],
     )
-    test_loader = create_simple_dataloader(
-        50,
-        num_shapes=config["num_shapes"] + 1,
-        batch_size=50,
+    test_loader = create_mnist_dataloader(
+        # 50,
+        batch_size=config["batch_size"],
         img_size=config["img_size"],
-        object_size=config["object_size"],
+        # object_size=config["object_size"],
     )
     optimizer = optim.Adam(model.parameters())
     model = train(

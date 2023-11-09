@@ -263,3 +263,4 @@ pyrightconfig.json
 # /pipnet/
 
 wandb
+*mnist/data/*
