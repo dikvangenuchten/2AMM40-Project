@@ -1,3 +1,4 @@
+from os import cpu_count
 from typing import Any, Dict, List, Optional, Tuple
 import torch
 from torch import Tensor
@@ -104,7 +105,7 @@ def create_mnist_dataloader(
         shuffle=True,
         batch_size=batch_size,
         collate_fn=create_batch,
-        num_workers=4,
+        num_workers=cpu_count(),
         prefetch_factor=4,
         pin_memory=True,
     )
