@@ -169,7 +169,7 @@ def train(
 
         pbar.set_description("||".join(f"{k}:{float(v):.4f}" for k, v in loss.items()))
 
-        torch.save(model, f"mnist_model_epoch:{i}.pt")
+        torch.save(model, f"checkpoint_model_epoch:{i}.pt")
     return model
 
 def eval_epoch(test_loader, model, metric_funcs):
