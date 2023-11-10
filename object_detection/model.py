@@ -176,6 +176,7 @@ class PIPSSD(SSD):
         mul_w = int(img_w / fea_w)
         mul_h = int(img_h / fea_h)
         sample_prototypes = [None] * head_outputs["add_on_out"].shape[1]
+        sample_prototypes_weight = [None] * head_outputs["add_on_out"].shape[1]
         for proto_idx in range(head_outputs["add_on_out"].shape[1]):
             value, idx = head_outputs["add_on_out"][:, proto_idx].flatten(1).max(1)
             topk_value, batch_idx = value.topk(y, sorted=True)
@@ -185,11 +186,10 @@ class PIPSSD(SSD):
             # If the prototype is on the edge of the image,
             # part of the 'focus' would be outside of the original image.
             # To make it easier on ourselves we clip it to the inside.
-            patch_padding = 1
+            patch_padding = 0
             w_idx = w_idx.clip(patch_padding, fea_w - (patch_padding + 1))
             h_idx = h_idx.clip(patch_padding, fea_h - (patch_padding + 1))
             # Convert w,h to patches of the original image.
-            # We take a 5x5 square multiplied by the reduction in image size.
             w_idx_min, h_idx_min = (w_idx - patch_padding) * mul_w, (h_idx - patch_padding) * mul_h
             w_idx_max, h_idx_max = (w_idx + (patch_padding + 1)) * mul_w, (h_idx + (patch_padding + 1)) * mul_h
 
@@ -205,6 +205,7 @@ class PIPSSD(SSD):
                 ],
                 0,
             )
+            sample_prototypes_weight[proto_idx] = topk_value.mean()
 
             save_image(
                 sample_prototypes[proto_idx],
@@ -212,8 +213,8 @@ class PIPSSD(SSD):
                 nrow=int(np.sqrt(y)),
             )
 
-        # for prot_idx in head_outputs["add_on_out"]:
         for img, softmaxes in zip(images, head_outputs["add_on_out"]):
+            
             pass
         pass
 
