@@ -125,8 +125,11 @@ def generate_single_sample(
             draw.ellipse(bbox, fill=0)
             labels.append(2)
         elif shape_type == 3:
-            draw = draw_triangle(draw, bbox, fill=0)
+            draw = draw_hexagon(draw, bbox, fill=0)
             labels.append(3)
+        elif shape_type == 4:
+            draw = draw_triangle(draw, bbox, fill=0)
+            labels.append(4)
         else:
             assert False, f"{shape_type=} is unsupported."
         bboxes.append(bbox)
@@ -139,6 +142,21 @@ def draw_triangle(draw, bbox, fill=0):
     draw.polygon(((x1, y1), (x1, y2), (x2, y2)), fill=fill)
     return draw
 
+
+def draw_hexagon(draw, bbox, fill=0):
+    x1, y1, x2, y2 = bbox
+    h = y2 - y1
+    w = x2 - x1
+    points = [
+        (x1,            (y1 + h / 2)),
+        (x1 + w / 4,    y1),
+        (x1 + 3* w / 4, y1),
+        (x1 + w,        (y1 + h / 2)),
+        (x1 + 3* w / 4, y2),
+        (x1 + w / 4,    y2),
+    ]
+    draw.polygon(points, fill=fill)
+    return draw
 
 def label_to_caption(label: int) -> str:
     return ["square", "circle", "triangle"][label]
