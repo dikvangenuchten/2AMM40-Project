@@ -254,7 +254,7 @@ class PIPSSD(SSD):
                     img.cpu(),
                     caption="Important prototypes found:"
                     + " ".join(
-                        f"[idx: {idx.cpu().detach().numpy()} val: {val.cpu().detach().numpy()}]"
+                        f"[idx: {idx.cpu().detach().numpy() + 1} val: {val.cpu().detach().numpy()}]"
                         for idx, val in zip(important_prototypes_idx.split(num_classes - 1), important_prototypes_val.split(num_classes - 1))
                     ),
                 )
