@@ -41,6 +41,7 @@ def wandb_log_images(
     images: torch.Tensor,
     targets: List[Tuple[Dict[str, torch.Tensor]]],
     predicted: List[Dict[str, torch.Tensor]],
+    commit: bool=False
 ) -> None:
     wandb.log(
         {
@@ -55,7 +56,7 @@ def wandb_log_images(
                 for image, target, prediction in zip(images[:64], targets, predicted)
             ]
         },
-        commit=False,
+        commit=commit,
     )
 
 
@@ -244,7 +245,7 @@ def main():
     config = {
         "pretraining_epochs": 0,
         "epochs": 50,
-        "img_size": (128, 128),
+        "img_size": (100, 100),
         "batch_size": 1024,
         "object_size": (16, 64),
         "num_shapes": 2,
