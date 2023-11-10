@@ -446,11 +446,11 @@ def create_model(
         pretrained_backbone.maxpool,
         pretrained_backbone.layer1,
         pretrained_backbone.layer2,
-        pretrained_backbone.layer3,
+        # pretrained_backbone.layer3,
         # pretrained_backbone.layer4,
     )
 
-    _backbone.out_channels = [256]
+    _backbone.out_channels = [128]
     anchor_generator = DefaultBoxGenerator(
         # We do not add any aspect ratios, only using the default (1 and s'k)
         [[]],

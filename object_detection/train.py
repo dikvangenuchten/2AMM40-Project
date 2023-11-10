@@ -190,12 +190,12 @@ def train(
 
 def main():
     config = {
-        "pretraining_epochs": 2,
-        "epochs": 10,
+        "pretraining_epochs": 5,
+        "epochs": 50,
         "img_size": (128, 128),
-        "batch_size": 256,
+        "batch_size": 1024,
         "object_size": (16, 64),
-        "num_shapes": 10,
+        "num_shapes": 2,
         "localization": 1.0,
         "classification": 1.0,
         "align": 10.0,
@@ -215,17 +215,20 @@ def main():
         num_classes=config["num_shapes"] + 1,
         img_size=config["img_size"],
     )
-    train_loader = create_mnist_dataloader(
-        # config["batch_size"] * 500,
+    # model = torch.load("mnist_model_epoch:9.pt")
+    train_loader = create_simple_dataloader(
+        size=config["batch_size"] * 100,
         batch_size=config["batch_size"],
         img_size=config["img_size"],
-        # object_size=config["object_size"],
+        num_shapes=config["num_shapes"] + 1,
+        object_size=config["object_size"],
     )
-    test_loader = create_mnist_dataloader(
-        # 50,
+    test_loader = create_simple_dataloader(
+        config["batch_size"],
         batch_size=config["batch_size"],
         img_size=config["img_size"],
-        # object_size=config["object_size"],
+        num_shapes=config["num_shapes"] + 1,
+        object_size=config["object_size"],
     )
     optimizer = optim.Adam(model.parameters())
     model = train(
