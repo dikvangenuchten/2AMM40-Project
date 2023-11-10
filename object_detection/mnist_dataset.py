@@ -1,3 +1,4 @@
+from functools import cache
 from os import cpu_count
 from typing import Any, Dict, List, Optional, Tuple
 import torch
@@ -78,6 +79,7 @@ class SimpleMnistDataset(Dataset):
     def __len__(self):
         return len(self.mnist_dataset)
 
+    @cache
     def __getitem__(self, index) -> Any:
         img, label = self.mnist_dataset[index]
         bboxes = self._bboxes[index]
@@ -95,18 +97,20 @@ class SimpleMnistDataset(Dataset):
 def create_mnist_dataloader(
     batch_size=128,
     img_size=(128, 128),
+    train=True
 ) -> DataLoader:
     dataset = SimpleMnistDataset(
         img_size=img_size,
         transform=None,
+        train=train
     )
     return DataLoader(
         dataset=dataset,
-        shuffle=True,
+        shuffle=train,
         batch_size=batch_size,
         collate_fn=create_batch,
         num_workers=cpu_count(),
-        prefetch_factor=4,
+        prefetch_factor=16,
         pin_memory=True,
     )
 
