@@ -6,3 +6,5 @@ pandas
 matplotlib
 torchviz==0.0.2
 wandb==0.15.12
+torchmetrics
+pycocotools
