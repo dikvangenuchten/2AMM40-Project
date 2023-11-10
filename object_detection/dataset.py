@@ -28,6 +28,7 @@ class SimpleDataset(Dataset):
         img_size: Tuple[int, int] = (128, 128),
         length: int = 10_000,
         object_size: Tuple[int, int] = (20, 40),
+        num_objects: Tuple[int, int] = (1, 3),
         transform=None,
         target_transform=None,
         pip_net: bool = True,
@@ -38,6 +39,7 @@ class SimpleDataset(Dataset):
         self.length = length
         self.img_size = img_size
         self.object_size = object_size
+        self._num_objects = num_objects
 
         # Shape is important for our problem, so we do not augment that.
         self.transform1 = transforms.Compose(
@@ -69,7 +71,7 @@ class SimpleDataset(Dataset):
                 generate_single_sample(
                     self.img_size,
                     object_size=self.object_size,
-                    num_objects=(1, 3),
+                    num_objects=self._num_objects,
                     num_shapes=self._num_shapes,
                 )
                 for _ in tqdm.trange(self.length)
@@ -97,11 +99,7 @@ def generate_single_sample(
     object_size: Tuple[int, int],
     num_shapes: int,
     num_objects: Tuple[int, int],
-    rng: Optional[np.random.Generator] = None,
 ):
-    if rng is None:
-        rng = np.random
-
     # Create a blank canvas on which we will draw everything.
     image = Image.new("1", img_size, 255)
     draw = ImageDraw.Draw(image)
@@ -177,12 +175,14 @@ def create_simple_dataloader(
     img_size=(128, 128),
     object_size=(20, 30),
     num_shapes=2,
+    num_objects=(1, 3),
 ) -> DataLoader:
     dataset = SimpleDataset(
         length=size,
         img_size=img_size,
         object_size=object_size,
         num_shapes=num_shapes,
+        num_objects=num_objects,
         transform=None,
     )
     return DataLoader(
@@ -196,6 +196,28 @@ def create_simple_dataloader(
 
 
 if __name__ == "__main__":
-    loader = create_simple_dataloader(100, img_size=(40, 40))
-    for x in loader:
-        pass
+    import os
+    os.makedirs("example", exist_ok=True)
+    
+    image = Image.new("1", (128, 128), 255)
+    draw = ImageDraw.Draw(image)
+    bbox = [14, 14, 114, 114]
+    draw.rectangle(bbox, fill=0)
+    image.save("example/square.png")
+    
+    image = Image.new("1", (128, 128), 255)
+    draw = ImageDraw.Draw(image)
+    bbox = [14, 14, 114, 114]
+    draw.ellipse(bbox, fill=0)
+    image.save("example/circle.png")
+    
+    image = Image.new("1", (128, 128), 255)
+    draw = ImageDraw.Draw(image)
+    bbox = [14, 14, 114, 114]
+    draw_hexagon(draw, bbox, fill=0)
+    image.save("example/hexagon.png")
+    
+
+    # loader = create_simple_dataloader(100, img_size=(40, 40), num_shapes=3, num_objects=(1,2))
+    # for x in loader:
+    #     pass

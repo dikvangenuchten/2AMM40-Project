@@ -223,7 +223,7 @@ def main():
         "pretraining_epochs": 5,
         "epochs": 50,
         "img_size": (128, 128),
-        "batch_size": 8,
+        "batch_size": 1024,
         "object_size": (16, 64),
         "num_shapes": 2,
         "localization": 1.0,
