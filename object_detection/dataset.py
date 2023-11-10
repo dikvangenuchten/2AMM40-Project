@@ -34,7 +34,7 @@ class SimpleDataset(Dataset):
         pip_net: bool = True,
     ) -> None:
         super().__init__()
-        assert 1 < num_shapes < 5
+        assert 1 < num_shapes < 6
         self._num_shapes = num_shapes
         self.length = length
         self.img_size = img_size
@@ -219,6 +219,13 @@ if __name__ == "__main__":
     bbox = [14, 14, 114, 114]
     draw_hexagon(draw, bbox, fill=0)
     image.save("example/hexagon.png")
+    
+    image = Image.new("1", (128, 128), 255)
+    draw = ImageDraw.Draw(image)
+    bbox = [14, 14, 114, 114]
+    draw_triangle(draw, bbox, fill=0)
+    image.save("example/triangle.png")
+
 
     # loader = create_simple_dataloader(100, img_size=(40, 40), num_shapes=3, num_objects=(1,2))
     # for x in loader:

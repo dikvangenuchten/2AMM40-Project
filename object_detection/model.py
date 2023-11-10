@@ -231,7 +231,10 @@ class PIPSSD(SSD):
                 f"prototypes/{proto_idx}.png",
                 nrow=int(np.sqrt(y)),
             )
-        wandb.log({"prototype examples": log_images})
+        try:
+            wandb.log({"prototype examples": log_images})
+        except wandb.errors.Error:
+            pass
 
         log_images = []
         class_weights = torch.cat(prototype_weights_per_class[1:])
@@ -257,7 +260,10 @@ class PIPSSD(SSD):
                 )
             )
 
-        wandb.log({"samples_with_prototype_idx": log_images}, commit=False)
+        try:
+            wandb.log({"samples_with_prototype_idx": log_images}, commit=False)
+        except wandb.errors.Error:
+            pass
 
     def _calc_losses(self, targets, head_outputs, anchors):
         losses = {}
