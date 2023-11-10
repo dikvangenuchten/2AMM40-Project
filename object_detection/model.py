@@ -247,15 +247,15 @@ class PIPSSD(SSD):
             w, h = np.unravel_index(
                 most_important_prototypes_idx.cpu(), softmaxes.shape[1:]
             )
-            important_prototypes_idx = softmaxes[:, w, h].argmax(0)
+            important_prototypes_val, important_prototypes_idx = softmaxes[:, w, h].max(0)
 
             log_images.append(
                 wandb.Image(
                     img.cpu(),
                     caption="Important prototypes found:"
                     + " ".join(
-                        f"{split.cpu().numpy()}"
-                        for split in important_prototypes_idx.split(num_classes - 1)
+                        f"idx: {idx.cpu().numpy()} val: {val.cpu().numpy()}"
+                        for idx, val in (important_prototypes_idx.split(num_classes - 1), important_prototypes_val.split(num_classes - 1))
                     ),
                 )
             )
