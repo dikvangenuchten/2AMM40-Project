@@ -259,9 +259,6 @@ pyrightconfig.json
 
 # End of https://www.toptal.com/developers/gitignore/api/python,images,visualstudiocode
 
-### PIP-net repository clone
-# /pipnet/
-
 wandb
 */mnist/data/*
 runs
