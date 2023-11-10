@@ -146,15 +146,16 @@ def draw_hexagon(draw, bbox, fill=0):
     h = y2 - y1
     w = x2 - x1
     points = [
-        (x1,            (y1 + h / 2)),
-        (x1 + w / 4,    y1),
-        (x1 + 3* w / 4, y1),
-        (x1 + w,        (y1 + h / 2)),
-        (x1 + 3* w / 4, y2),
-        (x1 + w / 4,    y2),
+        (x1, (y1 + h / 2)),
+        (x1 + w / 4, y1),
+        (x1 + 3 * w / 4, y1),
+        (x1 + w, (y1 + h / 2)),
+        (x1 + 3 * w / 4, y2),
+        (x1 + w / 4, y2),
     ]
     draw.polygon(points, fill=fill)
     return draw
+
 
 def label_to_caption(label: int) -> str:
     return ["square", "circle", "triangle"][label]
@@ -192,31 +193,32 @@ def create_simple_dataloader(
         collate_fn=create_batch,
         num_workers=4,
         pin_memory=True,
+        persistent_workers=True,
     )
 
 
 if __name__ == "__main__":
     import os
+
     os.makedirs("example", exist_ok=True)
-    
+
     image = Image.new("1", (128, 128), 255)
     draw = ImageDraw.Draw(image)
     bbox = [14, 14, 114, 114]
     draw.rectangle(bbox, fill=0)
     image.save("example/square.png")
-    
+
     image = Image.new("1", (128, 128), 255)
     draw = ImageDraw.Draw(image)
     bbox = [14, 14, 114, 114]
     draw.ellipse(bbox, fill=0)
     image.save("example/circle.png")
-    
+
     image = Image.new("1", (128, 128), 255)
     draw = ImageDraw.Draw(image)
     bbox = [14, 14, 114, 114]
     draw_hexagon(draw, bbox, fill=0)
     image.save("example/hexagon.png")
-    
 
     # loader = create_simple_dataloader(100, img_size=(40, 40), num_shapes=3, num_objects=(1,2))
     # for x in loader:

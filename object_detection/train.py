@@ -41,7 +41,6 @@ def wandb_log_images(
     images: torch.Tensor,
     targets: List[Tuple[Dict[str, torch.Tensor]]],
     predicted: List[Dict[str, torch.Tensor]],
-    commit: bool = True,
 ) -> None:
     wandb.log(
         {
@@ -104,12 +103,13 @@ def train_step(
         "tanh_loss": loss_dict.tanh_loss.detach(),
     }
 
+
 def eval_step(
     model: PIPSSD,
     x: torch.Tensor,
     x_prime: torch.Tensor,
     targets: Tuple[Dict[str, torch.Tensor]],
-    metric_funcs: List[Callable]
+    metric_funcs: List[Callable],
 ) -> Dict:
     images = torch.cat((x.to(DEVICE), x_prime.to(DEVICE)), dim=0)
     targets = move_targets_to_device(cat_targets(targets), DEVICE)
@@ -126,6 +126,7 @@ def eval_step(
         metric.update(output["detections"], targets)
 
     return output
+
 
 def train(
     train_loader,
@@ -148,11 +149,8 @@ def train(
     :param epoch: epoch number
     """
     wandb.watch(model)
-    
-    metric_funcs = [
-        detection.MeanAveragePrecision(),
-        detection.IntersectionOverUnion()
-    ]
+
+    metric_funcs = [detection.MeanAveragePrecision(), detection.IntersectionOverUnion()]
 
     for i in (pbar := tqdm.trange(epoch)):
         loss = train_epoch(
@@ -170,57 +168,81 @@ def train(
         pbar.set_description("||".join(f"{k}:{float(v):.4f}" for k, v in loss.items()))
 
         torch.save(model, f"checkpoint_model_epoch:{i}.pt")
+        wandb.log({"epoch": i}, commit=True)
+
+        # Set small weights to 0
+        with torch.no_grad():
+            model.head.classification_head.classification_layers[0].weight.copy_(
+                torch.clamp(
+                    model.head.classification_head.classification_layers[0].weight.data
+                    - 1e-3,
+                    min=0,
+                )
+            )
+
     return model
+
 
 def eval_epoch(test_loader, model, metric_funcs):
     model.eval()
     for j, (images, images_prime, targets) in enumerate(
-            tqdm.tqdm(test_loader, leave=False)
-        ):
-        output = eval_step(model, images, images_prime, targets, metric_funcs=metric_funcs)
- 
-            
+        tqdm.tqdm(test_loader, leave=False)
+    ):
+        output = eval_step(
+            model, images, images_prime, targets, metric_funcs=metric_funcs
+        )
+
         test_loss = {
-                # "test_loss": output["losses"].detach(),
-                "test_loc_loss": output["losses"].bbox_regression.detach(),
-                "test_class_loss": output["losses"].classification.detach(),
-                "test_align_loss": output["losses"].align_loss.detach(),
-                "test_tanh_loss": output["losses"].tanh_loss.detach(),
-            }
+            # "test_loss": output["losses"].detach(),
+            "test_loc_loss": output["losses"].bbox_regression.detach(),
+            "test_class_loss": output["losses"].classification.detach(),
+            "test_align_loss": output["losses"].align_loss.detach(),
+            "test_tanh_loss": output["losses"].tanh_loss.detach(),
+        }
         wandb.log(test_loss, commit=False)
-            # Only do 1 test batch
+        # Only do 1 test batch
 
     for metric in metric_funcs:
         wandb.log(metric.compute(), commit=False)
         metric.reset()
 
     wandb_log_images(images, targets, output["detections"])
-    return 
+    return
 
-def train_epoch(train_loader, model, optimizer, pretraining, bbox_regression_mul, classification_mul, align_loss_mul, tanh_loss_mul):
+
+def train_epoch(
+    train_loader,
+    model,
+    optimizer,
+    pretraining,
+    bbox_regression_mul,
+    classification_mul,
+    align_loss_mul,
+    tanh_loss_mul,
+):
     model.train()
-        # Batches
+    # Batches
     for j, (images, images_prime, targets) in enumerate(
-            tqdm.tqdm(train_loader, leave=False)
-        ):
+        tqdm.tqdm(train_loader, leave=False)
+    ):
         loss = train_step(
-                model,
-                optimizer,
-                images,
-                images_prime,
-                targets,
-                bbox_regression_mul=bbox_regression_mul if not pretraining else 0,
-                classification_mul=classification_mul if not pretraining else 0,
-                align_loss_mul=align_loss_mul,
-                tanh_loss_mul=tanh_loss_mul,
-            )
+            model,
+            optimizer,
+            images,
+            images_prime,
+            targets,
+            bbox_regression_mul=bbox_regression_mul if not pretraining else 0,
+            classification_mul=classification_mul if not pretraining else 0,
+            align_loss_mul=align_loss_mul,
+            tanh_loss_mul=tanh_loss_mul,
+        )
         wandb.log(loss, commit=False)
     return loss
 
 
 def main():
     config = {
-        "pretraining_epochs": 5,
+        "pretraining_epochs": 0,
         "epochs": 50,
         "img_size": (128, 128),
         "batch_size": 1024,
@@ -228,7 +250,7 @@ def main():
         "num_shapes": 2,
         "localization": 1.0,
         "classification": 1.0,
-        "align": 10.0,
+        "align": 1.0,
         "tanh": 1.0,
     }
 
@@ -247,7 +269,7 @@ def main():
     )
     # model = torch.load("mnist_model_epoch:9.pt")
     train_loader = create_simple_dataloader(
-        size=config["batch_size"] * 100,
+        size=config["batch_size"] * 50,
         batch_size=config["batch_size"],
         img_size=config["img_size"],
         num_shapes=config["num_shapes"] + 1,

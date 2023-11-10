@@ -1,4 +1,5 @@
 from collections import OrderedDict, namedtuple
+import os
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple, Union
 import warnings
 import numpy as np
@@ -9,7 +10,7 @@ from torch.nn.common_types import _size_2_t
 from torchviz import make_dot
 
 import torchvision
-from torchvision.utils import save_image
+from torchvision.utils import save_image, make_grid
 from torchvision.models.detection.ssd import (
     SSD,
     DefaultBoxGenerator,
@@ -20,6 +21,7 @@ from torchvision.models.detection.ssd import (
 )
 from torchvision.ops import boxes as box_ops
 import tqdm
+import wandb
 
 import constants
 
@@ -57,12 +59,12 @@ class NonNegativeConv2d(nn.Conv2d):
             device,
             dtype,
         )
-        super().register_forward_pre_hook(self._clamp_weights)
+        # super().register_forward_pre_hook(self._clamp_weights)
 
     def forward(self, input: Tensor) -> Tensor:
-        return self._conv_forward(input, self.weight, self.bias)
+        return self._conv_forward(input, F.relu(self.weight), self.bias)
 
-    def _clamp_weights(self, *args):
+    def clamp_weights(self, *args):
         """Before every forward call the weights are explicitly clamped to 0"""
         w_rg = self.weight.requires_grad
         b_rg = self.bias.requires_grad
@@ -142,11 +144,13 @@ class PIPSSD(SSD):
             # We do not reshape the images within the model so this step is redundent
             # detections = self.transform.postprocess(detections, images_.image_sizes, original_image_sizes)
         if calc_prototypes:
-            output["prototypes"] = self._calc_prototypes(head_outputs, images)
+            output["prototypes"] = self._calc_prototypes(
+                head_outputs, images, output["detections"]
+            )
 
         return output
 
-    def _calc_prototypes(self, head_outputs, images):
+    def _calc_prototypes(self, head_outputs, images, detections):
         # return
         # Get idx for examples where a specific prototype is very present
         batch_idx, prototype_idx, h_idx, w_idx = torch.where(
@@ -177,6 +181,8 @@ class PIPSSD(SSD):
         mul_h = int(img_h / fea_h)
         sample_prototypes = [None] * head_outputs["add_on_out"].shape[1]
         sample_prototypes_weight = [None] * head_outputs["add_on_out"].shape[1]
+        log_images = []
+        os.makedirs("prototypes", exist_ok=True)
         for proto_idx in range(head_outputs["add_on_out"].shape[1]):
             value, idx = head_outputs["add_on_out"][:, proto_idx].flatten(1).max(1)
             topk_value, batch_idx = value.topk(y, sorted=True)
@@ -186,12 +192,16 @@ class PIPSSD(SSD):
             # If the prototype is on the edge of the image,
             # part of the 'focus' would be outside of the original image.
             # To make it easier on ourselves we clip it to the inside.
-            patch_padding = 0
+            patch_padding = 3
             w_idx = w_idx.clip(patch_padding, fea_w - (patch_padding + 1))
             h_idx = h_idx.clip(patch_padding, fea_h - (patch_padding + 1))
             # Convert w,h to patches of the original image.
-            w_idx_min, h_idx_min = (w_idx - patch_padding) * mul_w, (h_idx - patch_padding) * mul_h
-            w_idx_max, h_idx_max = (w_idx + (patch_padding + 1)) * mul_w, (h_idx + (patch_padding + 1)) * mul_h
+            w_idx_min, h_idx_min = (w_idx - patch_padding) * mul_w, (
+                h_idx - patch_padding
+            ) * mul_h
+            w_idx_max, h_idx_max = (w_idx + (patch_padding + 1)) * mul_w, (
+                h_idx + (patch_padding + 1)
+            ) * mul_h
 
             sample_prototypes[proto_idx] = torch.stack(
                 [
@@ -207,16 +217,47 @@ class PIPSSD(SSD):
             )
             sample_prototypes_weight[proto_idx] = topk_value.mean()
 
-            save_image(
-                sample_prototypes[proto_idx],
-                f"prototype_{proto_idx}.png",
-                nrow=int(np.sqrt(y)),
+            log_images.append(
+                wandb.Image(
+                    make_grid(
+                        sample_prototypes[proto_idx], nrow=4, pad_value=0.5
+                    ).cpu(),
+                    caption=f"Example prototypes {proto_idx}",
+                ),
             )
 
+            save_image(
+                sample_prototypes[proto_idx],
+                f"prototypes/{proto_idx}.png",
+                nrow=int(np.sqrt(y)),
+            )
+        wandb.log({"prototype examples": log_images})
+
+        log_images = []
+        class_weights = torch.cat(prototype_weights_per_class[1:])
         for img, softmaxes in zip(images, head_outputs["add_on_out"]):
-            
-            pass
-        pass
+            # Get the idx that were important for the classification of the object
+            most_important_prototypes_value, most_important_prototypes_idx = (
+                F.conv2d(softmaxes, class_weights).flatten(1).max(1)
+            )
+            # Look up which prototype was important for that.
+            w, h = np.unravel_index(
+                most_important_prototypes_idx.cpu(), softmaxes.shape[1:]
+            )
+            important_prototypes_idx = softmaxes[:, w, h].argmax(0)
+
+            log_images.append(
+                wandb.Image(
+                    img.cpu(),
+                    caption="Important prototypes found:"
+                    + " ".join(
+                        f"{split.cpu().numpy()}"
+                        for split in important_prototypes_idx.split(num_classes - 1)
+                    ),
+                )
+            )
+
+        wandb.log(log_images, commit=False)
 
     def _calc_losses(self, targets, head_outputs, anchors):
         losses = {}
