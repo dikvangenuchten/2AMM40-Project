@@ -257,7 +257,7 @@ class PIPSSD(SSD):
                 )
             )
 
-        wandb.log(log_images, commit=False)
+        wandb.log({"samples_with_prototype_idx": log_images}, commit=False)
 
     def _calc_losses(self, targets, head_outputs, anchors):
         losses = {}
